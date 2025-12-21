@@ -1,19 +1,16 @@
 // ==UserScript==
 // @name         Web Storage Backup & Restore
-// @namespace    http://tampermonkey.net/
-// @version      2.0
+// @namespace    https://github.com/YourUsername/web-storage-backup
+// @version      2.2
 // @description  Xuất/Nhập localStorage, cookies, IndexedDB với nút kéo thả
-// @author       LCK307
+// @author       Your Name
 // @match        *://*/*
 // @grant        GM_setClipboard
 // @grant        GM_registerMenuCommand
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @grant        GM_addStyle
 // @license      MIT
-// @homepageURL  https://github.com/LCK307/web-storage-backup
-// @supportURL   https://github.com/LCK307/web-storage-backup/issues
-// @updateURL    https://raw.githubusercontent.com/LCK307/web-storage-backup/main/web-storage-backup.user.js
-// @downloadURL  https://raw.githubusercontent.com/LCK307/web-storage-backup/main/web-storage-backup.user.js
 // @run-at       document-end
 // ==/UserScript==
 
@@ -43,57 +40,61 @@
     function exportCookies() {
         const cookies = {};
         document.cookie.split(';').forEach(cookie => {
-            const [name, ...valueParts] = cookie.trim().split('=');
+            const parts = cookie.trim().split('=');
+            const name = parts[0];
+            const value = parts.slice(1).join('=');
             if (name) {
-                cookies[name] = valueParts.join('=');
+                cookies[name] = value;
             }
         });
         return cookies;
     }
 
     async function exportIndexedDB() {
-        const databases = await indexedDB.databases?.() || [];
-        const result = {};
+        if (!indexedDB.databases) return {};
+        
+        try {
+            const databases = await indexedDB.databases();
+            const result = {};
 
-        for (const dbInfo of databases) {
-            if (!dbInfo.name) continue;
+            for (const dbInfo of databases) {
+                if (!dbInfo.name) continue;
 
-            try {
-                const db = await new Promise((resolve, reject) => {
-                    const request = indexedDB.open(dbInfo.name);
-                    request.onsuccess = () => resolve(request.result);
-                    request.onerror = () => reject(request.error);
-                });
+                try {
+                    const db = await new Promise((resolve, reject) => {
+                        const request = indexedDB.open(dbInfo.name);
+                        request.onsuccess = () => resolve(request.result);
+                        request.onerror = () => reject(request.error);
+                    });
 
-                result[dbInfo.name] = {
-                    version: db.version,
-                    stores: {}
-                };
+                    result[dbInfo.name] = {
+                        version: db.version,
+                        stores: {}
+                    };
 
-                const storeNames = Array.from(db.objectStoreNames);
+                    const storeNames = Array.from(db.objectStoreNames);
 
-                for (const storeName of storeNames) {
-                    try {
-                        const tx = db.transaction(storeName, 'readonly');
-                        const store = tx.objectStore(storeName);
-                        const data = await new Promise((resolve, reject) => {
-                            const request = store.getAll();
-                            request.onsuccess = () => resolve(request.result);
-                            request.onerror = () => reject(request.error);
-                        });
-                        result[dbInfo.name].stores[storeName] = data;
-                    } catch (e) {
-                        console.warn(`Không đọc được store ${storeName}:`, e);
+                    for (const storeName of storeNames) {
+                        try {
+                            const tx = db.transaction(storeName, 'readonly');
+                            const store = tx.objectStore(storeName);
+                            const data = await new Promise((resolve, reject) => {
+                                const request = store.getAll();
+                                request.onsuccess = () => resolve(request.result);
+                                request.onerror = () => reject(request.error);
+                            });
+                            result[dbInfo.name].stores[storeName] = data;
+                        } catch (e) {}
                     }
-                }
 
-                db.close();
-            } catch (e) {
-                console.warn(`Không đọc được DB ${dbInfo.name}:`, e);
+                    db.close();
+                } catch (e) {}
             }
-        }
 
-        return result;
+            return result;
+        } catch (e) {
+            return {};
+        }
     }
 
     async function exportAll() {
@@ -101,8 +102,7 @@
             _meta: {
                 url: window.location.origin,
                 hostname: window.location.hostname,
-                exportedAt: new Date().toISOString(),
-                userAgent: navigator.userAgent
+                exportedAt: new Date().toISOString()
             },
             localStorage: exportLocalStorage(),
             sessionStorage: exportSessionStorage(),
@@ -117,7 +117,7 @@
         const data = await exportAll();
         try {
             return btoa(unescape(encodeURIComponent(data)));
-        } catch {
+        } catch (e) {
             return data;
         }
     }
@@ -127,13 +127,11 @@
     function importLocalStorage(data) {
         if (!data || typeof data !== 'object') return 0;
         let count = 0;
-        for (const [key, value] of Object.entries(data)) {
+        for (const key in data) {
             try {
-                localStorage.setItem(key, value);
+                localStorage.setItem(key, data[key]);
                 count++;
-            } catch (e) {
-                console.warn(`Lỗi set localStorage[${key}]:`, e);
-            }
+            } catch (e) {}
         }
         return count;
     }
@@ -141,13 +139,11 @@
     function importSessionStorage(data) {
         if (!data || typeof data !== 'object') return 0;
         let count = 0;
-        for (const [key, value] of Object.entries(data)) {
+        for (const key in data) {
             try {
-                sessionStorage.setItem(key, value);
+                sessionStorage.setItem(key, data[key]);
                 count++;
-            } catch (e) {
-                console.warn(`Lỗi set sessionStorage[${key}]:`, e);
-            }
+            } catch (e) {}
         }
         return count;
     }
@@ -155,15 +151,13 @@
     function importCookies(data) {
         if (!data || typeof data !== 'object') return 0;
         let count = 0;
-        for (const [name, value] of Object.entries(data)) {
+        for (const name in data) {
             try {
                 const expires = new Date();
                 expires.setFullYear(expires.getFullYear() + 1);
-                document.cookie = `${name}=${value}; expires=${expires.toUTCString()}; path=/`;
+                document.cookie = name + '=' + data[name] + '; expires=' + expires.toUTCString() + '; path=/';
                 count++;
-            } catch (e) {
-                console.warn(`Lỗi set cookie[${name}]:`, e);
-            }
+            } catch (e) {}
         }
         return count;
     }
@@ -172,7 +166,8 @@
         if (!data || typeof data !== 'object') return 0;
         let count = 0;
 
-        for (const [dbName, dbData] of Object.entries(data)) {
+        for (const dbName in data) {
+            const dbData = data[dbName];
             try {
                 await new Promise((resolve) => {
                     const deleteRequest = indexedDB.deleteDatabase(dbName);
@@ -185,10 +180,11 @@
                     const request = indexedDB.open(dbName, dbData.version || 1);
 
                     request.onupgradeneeded = (event) => {
-                        const db = event.target.result;
-                        for (const storeName of Object.keys(dbData.stores || {})) {
-                            if (!db.objectStoreNames.contains(storeName)) {
-                                db.createObjectStore(storeName, { autoIncrement: true });
+                        const database = event.target.result;
+                        const stores = dbData.stores || {};
+                        for (const storeName in stores) {
+                            if (!database.objectStoreNames.contains(storeName)) {
+                                database.createObjectStore(storeName, { autoIncrement: true });
                             }
                         }
                     };
@@ -197,54 +193,49 @@
                     request.onerror = () => reject(request.error);
                 });
 
-                for (const [storeName, storeData] of Object.entries(dbData.stores || {})) {
+                const stores = dbData.stores || {};
+                for (const storeName in stores) {
                     if (!db.objectStoreNames.contains(storeName)) continue;
 
                     const tx = db.transaction(storeName, 'readwrite');
                     const store = tx.objectStore(storeName);
+                    const storeData = stores[storeName];
 
-                    for (const item of storeData) {
+                    for (let i = 0; i < storeData.length; i++) {
                         try {
-                            store.add(item);
+                            store.add(storeData[i]);
                             count++;
-                        } catch (e) {
-                            console.warn(`Lỗi add vào ${storeName}:`, e);
-                        }
+                        } catch (e) {}
                     }
 
-                    await new Promise(resolve => {
+                    await new Promise((resolve) => {
                         tx.oncomplete = resolve;
                         tx.onerror = resolve;
                     });
                 }
 
                 db.close();
-            } catch (e) {
-                console.warn(`Lỗi import DB ${dbName}:`, e);
-            }
+            } catch (e) {}
         }
 
         return count;
     }
 
-    async function importAll(input) {
+    async function importFromData(input) {
         try {
             let data;
 
             try {
                 const decoded = decodeURIComponent(escape(atob(input)));
                 data = JSON.parse(decoded);
-            } catch {
+            } catch (e) {
                 data = JSON.parse(input);
             }
 
-            if (data._meta?.hostname && data._meta.hostname !== window.location.hostname) {
-                const confirmImport = window.confirm(
-                    `⚠️ Dữ liệu từ: ${data._meta.hostname}\n` +
-                    `Trang hiện tại: ${window.location.hostname}\n\n` +
-                    `Vẫn tiếp tục nhập?`
-                );
-                if (!confirmImport) return { success: false, error: 'Người dùng hủy' };
+            if (data._meta && data._meta.hostname && data._meta.hostname !== window.location.hostname) {
+                if (!window.confirm('Dữ liệu từ: ' + data._meta.hostname + '\nTrang hiện tại: ' + window.location.hostname + '\n\nVẫn tiếp tục?')) {
+                    return { success: false, error: 'Người dùng hủy' };
+                }
             }
 
             const results = {
@@ -256,20 +247,12 @@
 
             return {
                 success: true,
-                results,
-                total: Object.values(results).reduce((a, b) => a + b, 0)
+                results: results,
+                total: results.localStorage + results.sessionStorage + results.cookies + results.indexedDB
             };
         } catch (e) {
             return { success: false, error: e.message };
         }
-    }
-
-    function getStats() {
-        return {
-            localStorage: localStorage.length,
-            sessionStorage: sessionStorage.length,
-            cookies: document.cookie.split(';').filter(c => c.trim()).length
-        };
     }
 
     // ==================== ACTION HANDLERS ====================
@@ -280,24 +263,14 @@
             GM_setClipboard(data);
 
             const parsed = JSON.parse(data);
-            const stats = {
-                localStorage: Object.keys(parsed.localStorage || {}).length,
-                sessionStorage: Object.keys(parsed.sessionStorage || {}).length,
-                cookies: Object.keys(parsed.cookies || {}).length,
-                indexedDB: Object.keys(parsed.indexedDB || {}).length
-            };
+            const ls = Object.keys(parsed.localStorage || {}).length;
+            const ss = Object.keys(parsed.sessionStorage || {}).length;
+            const ck = Object.keys(parsed.cookies || {}).length;
+            const idb = Object.keys(parsed.indexedDB || {}).length;
 
-            alert(
-                `✅ Đã copy vào clipboard!\n\n` +
-                `📊 Thống kê:\n` +
-                `├── localStorage: ${stats.localStorage} keys\n` +
-                `├── sessionStorage: ${stats.sessionStorage} keys\n` +
-                `├── cookies: ${stats.cookies} cookies\n` +
-                `└── indexedDB: ${stats.indexedDB} databases\n\n` +
-                `📋 Dán vào thiết bị khác để nhập.`
-            );
+            alert('Đã copy!\n\nlocalStorage: ' + ls + '\nsessionStorage: ' + ss + '\ncookies: ' + ck + '\nindexedDB: ' + idb);
         } catch (e) {
-            alert('❌ Lỗi: ' + e.message);
+            alert('Lỗi: ' + e.message);
         }
     }
 
@@ -305,393 +278,315 @@
         try {
             const data = await exportCompressed();
             GM_setClipboard(data);
-            alert(
-                `✅ Đã copy dạng nén!\n\n` +
-                `Kích thước: ${(data.length / 1024).toFixed(1)} KB\n\n` +
-                `Gọn hơn để gửi qua chat.`
-            );
+            alert('Đã copy dạng nén!\n\nKích thước: ' + (data.length / 1024).toFixed(1) + ' KB');
         } catch (e) {
-            alert('❌ Lỗi: ' + e.message);
+            alert('Lỗi: ' + e.message);
         }
     }
 
     function handleExportLocalStorage() {
         const data = JSON.stringify(exportLocalStorage(), null, 2);
         GM_setClipboard(data);
-        alert(`✅ Đã copy localStorage (${Object.keys(JSON.parse(data)).length} keys)`);
+        alert('Đã copy localStorage (' + Object.keys(JSON.parse(data)).length + ' keys)');
     }
 
     function handleExportCookies() {
         const data = JSON.stringify(exportCookies(), null, 2);
         GM_setClipboard(data);
-        alert(`✅ Đã copy cookies (${Object.keys(JSON.parse(data)).length} cookies)`);
+        alert('Đã copy cookies (' + Object.keys(JSON.parse(data)).length + ')');
     }
 
     async function handleImport() {
-        const input = prompt(
-            '📥 NHẬP DỮ LIỆU STORAGE\n\n' +
-            'Dán dữ liệu đã xuất từ thiết bị khác:\n' +
-            '(Hỗ trợ JSON hoặc chuỗi nén)\n\n' +
-            '⚠️ Sẽ ghi đè dữ liệu hiện tại!'
-        );
+        const input = prompt('Dán dữ liệu storage (JSON hoặc nén):');
+        if (!input) return;
 
-        if (!input || !input.trim()) return;
-
-        const result = await importAll(input.trim());
+        const result = await importFromData(input.trim());
 
         if (result.success) {
-            const reload = confirm(
-                `✅ Nhập thành công!\n\n` +
-                `📊 Chi tiết:\n` +
-                `├── localStorage: ${result.results.localStorage} keys\n` +
-                `├── sessionStorage: ${result.results.sessionStorage} keys\n` +
-                `├── cookies: ${result.results.cookies} cookies\n` +
-                `└── indexedDB: ${result.results.indexedDB} records\n\n` +
-                `🔄 Reload trang để áp dụng?`
-            );
-
-            if (reload) {
+            if (confirm('Nhập thành công! ' + result.total + ' items\n\nReload trang?')) {
                 location.reload();
             }
         } else {
-            alert(`❌ Lỗi: ${result.error}`);
+            alert('Lỗi: ' + result.error);
         }
     }
 
     function handleView() {
-        const stats = getStats();
+        const ls = localStorage.length;
+        const ss = sessionStorage.length;
+        const ck = document.cookie.split(';').filter(function(c) { return c.trim(); }).length;
 
-        let preview = `📊 STORAGE CỦA ${window.location.hostname}\n\n`;
-        preview += `localStorage: ${stats.localStorage} keys\n`;
-        preview += `sessionStorage: ${stats.sessionStorage} keys\n`;
-        preview += `cookies: ${stats.cookies} cookies\n\n`;
-
-        preview += `── localStorage (10 đầu) ──\n`;
-        for (let i = 0; i < Math.min(10, localStorage.length); i++) {
-            const key = localStorage.key(i);
-            const value = localStorage.getItem(key);
-            preview += `${key}: ${value?.slice(0, 50)}...\n`;
-        }
-
-        alert(preview);
+        alert('STORAGE: ' + window.location.hostname + '\n\nlocalStorage: ' + ls + '\nsessionStorage: ' + ss + '\ncookies: ' + ck);
     }
 
     function handleClear() {
-        const choice = prompt(
-            '🗑️ XÓA STORAGE\n\n' +
-            'Nhập số để chọn:\n' +
-            '1 - Xóa localStorage\n' +
-            '2 - Xóa sessionStorage\n' +
-            '3 - Xóa cookies\n' +
-            '4 - Xóa TẤT CẢ\n' +
-            '0 - Hủy'
-        );
+        const choice = prompt('Nhập số:\n1 - Xóa localStorage\n2 - Xóa sessionStorage\n3 - Xóa cookies\n4 - Xóa TẤT CẢ\n0 - Hủy');
 
-        switch (choice) {
-            case '1':
+        if (choice === '1') {
+            localStorage.clear();
+            alert('Đã xóa localStorage');
+        } else if (choice === '2') {
+            sessionStorage.clear();
+            alert('Đã xóa sessionStorage');
+        } else if (choice === '3') {
+            var cookies = document.cookie.split(';');
+            for (var i = 0; i < cookies.length; i++) {
+                var name = cookies[i].split('=')[0].trim();
+                document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+            }
+            alert('Đã xóa cookies');
+        } else if (choice === '4') {
+            if (confirm('Xóa TẤT CẢ storage?')) {
                 localStorage.clear();
-                alert('✅ Đã xóa localStorage');
-                break;
-            case '2':
                 sessionStorage.clear();
-                alert('✅ Đã xóa sessionStorage');
-                break;
-            case '3':
-                document.cookie.split(';').forEach(cookie => {
-                    const name = cookie.split('=')[0].trim();
-                    document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
-                });
-                alert('✅ Đã xóa cookies');
-                break;
-            case '4':
-                if (confirm('⚠️ Xóa TẤT CẢ storage?')) {
-                    localStorage.clear();
-                    sessionStorage.clear();
-                    document.cookie.split(';').forEach(cookie => {
-                        const name = cookie.split('=')[0].trim();
-                        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
-                    });
-                    alert('✅ Đã xóa tất cả!');
+                var cookies = document.cookie.split(';');
+                for (var i = 0; i < cookies.length; i++) {
+                    var name = cookies[i].split('=')[0].trim();
+                    document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
                 }
-                break;
+                alert('Đã xóa tất cả!');
+            }
         }
     }
 
-    // ==================== MENU COMMANDS (Giữ nguyên) ====================
+    // ==================== MENU COMMANDS ====================
 
-    GM_registerMenuCommand('📤 Xuất Storage (JSON)', handleExportJSON);
-    GM_registerMenuCommand('🗜️ Xuất Storage (Nén)', handleExportCompressed);
+    GM_registerMenuCommand('📤 Xuất JSON', handleExportJSON);
+    GM_registerMenuCommand('🗜️ Xuất Nén', handleExportCompressed);
     GM_registerMenuCommand('📦 Xuất localStorage', handleExportLocalStorage);
     GM_registerMenuCommand('🍪 Xuất Cookies', handleExportCookies);
     GM_registerMenuCommand('📥 Nhập Storage', handleImport);
     GM_registerMenuCommand('👁️ Xem Storage', handleView);
     GM_registerMenuCommand('🗑️ Xóa Storage', handleClear);
 
-   // ==================== NÚT KÉO THẢ ====================
+    // ==================== FLOATING UI ====================
 
-function createFloatingUI() {
-    const style = document.createElement('style');
-    style.textContent = `
-        #sb-float-btn {
-            position: fixed;
-            width: 42px;
-            height: 42px;
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            border: none;
-            border-radius: 50%;
-            color: white;
-            font-size: 18px;
-            cursor: grab;
-            z-index: 2147483647;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            touch-action: none;
-            user-select: none;
+    function createFloatingUI() {
+        // Dùng GM_addStyle thay vì appendChild style
+        GM_addStyle('\
+            #sb-float-btn {\
+                position: fixed;\
+                width: 44px;\
+                height: 44px;\
+                background: linear-gradient(135deg, #667eea, #764ba2);\
+                border: none;\
+                border-radius: 50%;\
+                color: white;\
+                font-size: 18px;\
+                z-index: 2147483647;\
+                box-shadow: 0 2px 12px rgba(0,0,0,0.3);\
+                display: flex;\
+                align-items: center;\
+                justify-content: center;\
+                touch-action: none;\
+                user-select: none;\
+                -webkit-user-select: none;\
+                cursor: pointer;\
+            }\
+            #sb-float-btn.dragging {\
+                opacity: 0.8;\
+                transform: scale(1.1);\
+            }\
+            #sb-menu {\
+                position: fixed;\
+                background: #1e1e2e;\
+                border-radius: 12px;\
+                padding: 6px;\
+                z-index: 2147483646;\
+                box-shadow: 0 5px 25px rgba(0,0,0,0.5);\
+                display: none;\
+                min-width: 180px;\
+            }\
+            #sb-menu.show {\
+                display: block;\
+            }\
+            #sb-menu button {\
+                display: block;\
+                width: 100%;\
+                padding: 12px 14px;\
+                margin: 3px 0;\
+                background: #2d2d3d;\
+                border: none;\
+                border-radius: 8px;\
+                color: white;\
+                font-size: 14px;\
+                text-align: left;\
+                cursor: pointer;\
+            }\
+            #sb-menu button:active {\
+                background: #4d4d6d;\
+            }\
+            #sb-menu-divider {\
+                height: 1px;\
+                background: #3d3d5d;\
+                margin: 6px 0;\
+            }\
+        ');
+
+        // Tạo button bằng DOM API
+        var btn = document.createElement('button');
+        btn.id = 'sb-float-btn';
+        btn.textContent = '💾';
+
+        // Tạo menu bằng DOM API
+        var menu = document.createElement('div');
+        menu.id = 'sb-menu';
+
+        var menuData = [
+            { text: '📤 Xuất JSON', action: handleExportJSON },
+            { text: '🗜️ Xuất Nén', action: handleExportCompressed },
+            { text: '📦 Xuất localStorage', action: handleExportLocalStorage },
+            { text: '🍪 Xuất Cookies', action: handleExportCookies },
+            { divider: true },
+            { text: '📥 Nhập Storage', action: handleImport },
+            { divider: true },
+            { text: '👁️ Xem Storage', action: handleView },
+            { text: '🗑️ Xóa Storage', action: handleClear }
+        ];
+
+        for (var i = 0; i < menuData.length; i++) {
+            var item = menuData[i];
+            if (item.divider) {
+                var divider = document.createElement('div');
+                divider.id = 'sb-menu-divider';
+                menu.appendChild(divider);
+            } else {
+                var menuBtn = document.createElement('button');
+                menuBtn.textContent = item.text;
+                (function(action) {
+                    menuBtn.onclick = function() {
+                        menu.classList.remove('show');
+                        action();
+                    };
+                })(item.action);
+                menu.appendChild(menuBtn);
+            }
         }
-        #sb-float-btn:active { cursor: grabbing; }
-        #sb-float-btn.dragging { opacity: 0.7; transform: scale(1.1); }
 
-        #sb-menu {
-            position: fixed;
-            background: #1e1e2e;
-            border-radius: 12px;
-            padding: 6px;
-            z-index: 2147483646;
-            box-shadow: 0 5px 25px rgba(0,0,0,0.4);
-            display: none;
-            min-width: 180px;
-        }
-        #sb-menu.show { display: block; }
+        document.body.appendChild(btn);
+        document.body.appendChild(menu);
 
-        #sb-menu button {
-            display: block;
-            width: 100%;
-            padding: 10px 12px;
-            margin: 3px 0;
-            background: #2d2d3d;
-            border: none;
-            border-radius: 8px;
-            color: white;
-            font-size: 13px;
-            text-align: left;
-            cursor: pointer;
-            transition: background 0.15s;
-        }
-        #sb-menu button:hover { background: #3d3d5d; }
-        #sb-menu button:active { background: #4d4d6d; }
+        // ===== DRAG LOGIC =====
+        var startX = 0;
+        var startY = 0;
+        var startLeft = 0;
+        var startTop = 0;
+        var isDragging = false;
+        var hasDragged = false;
 
-        #sb-menu .divider {
-            height: 1px;
-            background: #3d3d5d;
-            margin: 6px 0;
-        }
-    `;
-    document.head.appendChild(style);
-
-    const btn = document.createElement('button');
-    btn.id = 'sb-float-btn';
-    btn.textContent = '💾';
-    document.body.appendChild(btn);
-
-    const menu = document.createElement('div');
-    menu.id = 'sb-menu';
-
-    const menuItems = [
-        { icon: '📤', text: 'Xuất JSON', action: handleExportJSON },
-        { icon: '🗜️', text: 'Xuất Nén', action: handleExportCompressed },
-        { icon: '📦', text: 'Xuất localStorage', action: handleExportLocalStorage },
-        { icon: '🍪', text: 'Xuất Cookies', action: handleExportCookies },
-        { divider: true },
-        { icon: '📥', text: 'Nhập Storage', action: handleImport },
-        { divider: true },
-        { icon: '👁️', text: 'Xem Storage', action: handleView },
-        { icon: '🗑️', text: 'Xóa Storage', action: handleClear }
-    ];
-
-    menuItems.forEach(item => {
-        if (item.divider) {
-            const div = document.createElement('div');
-            div.className = 'divider';
-            menu.appendChild(div);
+        var savedPos = GM_getValue('sb_btn_pos', null);
+        if (savedPos) {
+            btn.style.left = savedPos.left + 'px';
+            btn.style.top = savedPos.top + 'px';
         } else {
-            const menuBtn = document.createElement('button');
-            menuBtn.textContent = `${item.icon} ${item.text}`;
-            menuBtn.onclick = () => {
-                menu.classList.remove('show');
-                item.action();
-            };
-            menu.appendChild(menuBtn);
-        }
-    });
-
-    document.body.appendChild(menu);
-
-    // ===== DRAG & DROP (SỬA CHO ĐIỆN THOẠI) =====
-    let isDragging = false;
-    let startX, startY, startLeft, startTop;
-    let totalMoved = 0;
-    let startTime = 0;
-
-    const MOVE_THRESHOLD = 10; // Phải di chuyển > 10px mới tính là kéo
-    const TAP_TIME = 200; // Nhấn < 200ms tính là tap
-
-    const savedPos = GM_getValue('sb_btn_pos', null);
-    if (savedPos) {
-        btn.style.left = savedPos.left + 'px';
-        btn.style.top = savedPos.top + 'px';
-    } else {
-        btn.style.right = '15px';
-        btn.style.bottom = '80px';
-    }
-
-    function onStart(e) {
-        isDragging = true;
-        totalMoved = 0;
-        startTime = Date.now();
-        btn.classList.add('dragging');
-
-        const touch = e.touches ? e.touches[0] : e;
-        startX = touch.clientX;
-        startY = touch.clientY;
-
-        const rect = btn.getBoundingClientRect();
-        startLeft = rect.left;
-        startTop = rect.top;
-
-        e.preventDefault();
-    }
-
-    function onMove(e) {
-        if (!isDragging) return;
-
-        const touch = e.touches ? e.touches[0] : e;
-        const dx = touch.clientX - startX;
-        const dy = touch.clientY - startY;
-
-        // Tính tổng quãng đường di chuyển
-        totalMoved = Math.sqrt(dx * dx + dy * dy);
-
-        let newLeft = startLeft + dx;
-        let newTop = startTop + dy;
-
-        newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - 42));
-        newTop = Math.max(0, Math.min(newTop, window.innerHeight - 42));
-
-        btn.style.left = newLeft + 'px';
-        btn.style.top = newTop + 'px';
-        btn.style.right = 'auto';
-        btn.style.bottom = 'auto';
-
-        e.preventDefault();
-    }
-
-    function onEnd(e) {
-        if (!isDragging) return;
-
-        const elapsed = Date.now() - startTime;
-        const wasDragged = totalMoved > MOVE_THRESHOLD;
-        const wasTap = elapsed < TAP_TIME && !wasDragged;
-
-        isDragging = false;
-        btn.classList.remove('dragging');
-
-        // Lưu vị trí
-        const rect = btn.getBoundingClientRect();
-        GM_setValue('sb_btn_pos', { left: rect.left, top: rect.top });
-
-        // Nếu là tap (nhấn nhanh, không kéo) → mở menu
-        if (wasTap) {
-            toggleMenu();
-        }
-    }
-
-    function toggleMenu() {
-        if (menu.classList.contains('show')) {
-            menu.classList.remove('show');
-            return;
+            btn.style.right = '15px';
+            btn.style.bottom = '80px';
         }
 
-        const rect = btn.getBoundingClientRect();
-        let left = rect.left;
-        let top = rect.bottom + 8;
-
-        if (left + 180 > window.innerWidth) {
-            left = window.innerWidth - 190;
+        function getPos(e) {
+            if (e.touches && e.touches.length > 0) {
+                return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            }
+            return { x: e.clientX, y: e.clientY };
         }
-        if (top + 350 > window.innerHeight) {
-            top = rect.top - 360;
+
+        function dragStart(e) {
+            var pos = getPos(e);
+            startX = pos.x;
+            startY = pos.y;
+
+            var rect = btn.getBoundingClientRect();
+            startLeft = rect.left;
+            startTop = rect.top;
+
+            isDragging = true;
+            hasDragged = false;
+
+            btn.classList.add('dragging');
+            e.preventDefault();
         }
-        if (left < 10) left = 10;
-        if (top < 10) top = 10;
 
-        menu.style.left = left + 'px';
-        menu.style.top = top + 'px';
-        menu.classList.add('show');
-    }
+        function dragMove(e) {
+            if (!isDragging) return;
 
-    // Mouse events
-    btn.addEventListener('mousedown', onStart);
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onEnd);
+            var pos = getPos(e);
+            var dx = pos.x - startX;
+            var dy = pos.y - startY;
+            var distance = Math.sqrt(dx * dx + dy * dy);
 
-    // Touch events
-    btn.addEventListener('touchstart', onStart, { passive: false });
-    document.addEventListener('touchmove', onMove, { passive: false });
-    document.addEventListener('touchend', onEnd);
+            if (distance > 10) {
+                hasDragged = true;
+            }
 
-    // Click cho máy tính (backup)
-    btn.addEventListener('click', (e) => {
-        // Chỉ xử lý nếu không phải touch device
-        if (!('ontouchstart' in window)) {
-            toggleMenu();
+            var newLeft = startLeft + dx;
+            var newTop = startTop + dy;
+
+            newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - 44));
+            newTop = Math.max(0, Math.min(newTop, window.innerHeight - 44));
+
+            btn.style.left = newLeft + 'px';
+            btn.style.top = newTop + 'px';
+            btn.style.right = 'auto';
+            btn.style.bottom = 'auto';
+
+            e.preventDefault();
         }
-    });
 
-    // Đóng menu khi click ra ngoài
-    document.addEventListener('click', (e) => {
-        if (!btn.contains(e.target) && !menu.contains(e.target)) {
-            menu.classList.remove('show');
+        function dragEnd(e) {
+            if (!isDragging) return;
+
+            isDragging = false;
+            btn.classList.remove('dragging');
+
+            var rect = btn.getBoundingClientRect();
+            GM_setValue('sb_btn_pos', { left: rect.left, top: rect.top });
+
+            if (!hasDragged) {
+                toggleMenu();
+            }
         }
-    });
 
-    document.addEventListener('touchstart', (e) => {
-        if (!btn.contains(e.target) && !menu.contains(e.target)) {
-            menu.classList.remove('show');
-
-        // ===== SHOW MENU =====
-        btn.addEventListener('click', () => {
-            if (hasMoved) return; // Không mở menu nếu vừa kéo
-
+        function toggleMenu() {
             if (menu.classList.contains('show')) {
                 menu.classList.remove('show');
                 return;
             }
 
-            // Tính vị trí menu
-            const rect = btn.getBoundingClientRect();
-            let left = rect.left;
-            let top = rect.bottom + 8;
+            var rect = btn.getBoundingClientRect();
+            var left = rect.left;
+            var top = rect.bottom + 10;
 
-            // Nếu menu ra ngoài màn hình
-            if (left + 160 > window.innerWidth) {
-                left = window.innerWidth - 170;
+            if (left + 180 > window.innerWidth) {
+                left = window.innerWidth - 190;
+            }
+            if (left < 10) {
+                left = 10;
             }
             if (top + 300 > window.innerHeight) {
                 top = rect.top - 310;
             }
-            if (left < 10) left = 10;
-            if (top < 10) top = 10;
+            if (top < 10) {
+                top = 10;
+            }
 
             menu.style.left = left + 'px';
             menu.style.top = top + 'px';
             menu.classList.add('show');
-        });
+        }
 
-        // Đóng menu khi click ra ngoài
-        document.addEventListener('click', (e) => {
-            if (!btn.contains(e.target) && !menu.contains(e.target)) {
+        // Touch events
+        btn.addEventListener('touchstart', dragStart, { passive: false });
+        document.addEventListener('touchmove', dragMove, { passive: false });
+        document.addEventListener('touchend', dragEnd, { passive: false });
+
+        // Mouse events
+        btn.addEventListener('mousedown', dragStart);
+        document.addEventListener('mousemove', dragMove);
+        document.addEventListener('mouseup', dragEnd);
+
+        // Đóng menu
+        document.addEventListener('click', function(e) {
+            if (e.target !== btn && !menu.contains(e.target)) {
                 menu.classList.remove('show');
             }
         });
@@ -705,8 +600,12 @@ function createFloatingUI() {
             return;
         }
 
-        createFloatingUI();
-        console.log('💾 Web Storage Backup & Restore - Sẵn sàng!');
+        try {
+            createFloatingUI();
+            console.log('💾 Storage Backup v2.2 Ready');
+        } catch (e) {
+            console.error('Storage Backup error:', e);
+        }
     }
 
     if (document.readyState === 'loading') {
