@@ -5,7 +5,7 @@ Userscript để xuất/nhập localStorage, cookies, IndexedDB giữa các thi�
 ## 📥 Cài Đặt
 
 1. Cài [Tampermonkey](https://www.tampermonkey.net/)
-2. Click: [Cài đặt script](https://raw.githubusercontent.com/YourUsername/web-storage-backup/main/web-storage-backup.user.js)
+2. Click: [Cài đặt script](https://raw.githubusercontent.com/LCK307/web-storage-backup/main/web-storage-backup.user.js)
 3. Click "Install"
 
 ## 🎯 Tính Năng
