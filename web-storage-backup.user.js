@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Web Storage Backup & Restore
 // @namespace    https://github.com/LCK307/web-storage-backup
-// @version      2.4
-// @description  Xuất/Nhập localStorage, cookies, IndexedDB với nút kéo thả
+// @version      2.5
+// @description  Xuất/Nhập localStorage, cookies, sessionStorage, IndexedDB với nút kéo thả
 // @author       Your Name
 // @match        *://*/*
 // @grant        GM_setClipboard
@@ -356,6 +356,7 @@
         }
     }
 
+    // localStorage
     function handleExportLocalStorage() {
         if (isMobile()) {
             alert('⚠️ Bạn đang dùng điện thoại!\n\nNên dùng "Tải File" thay vì "Copy".');
@@ -370,50 +371,6 @@
         var filename = 'localStorage-' + window.location.hostname + '-' + Date.now() + '.json';
         downloadFile(data, filename, 'application/json');
         alert('Đã tải file: ' + filename);
-    }
-
-    function handleExportCookies() {
-        if (isMobile()) {
-            alert('⚠️ Bạn đang dùng điện thoại!\n\nNên dùng "Tải File" thay vì "Copy".');
-        }
-        var data = JSON.stringify(exportCookies(), null, 2);
-        GM_setClipboard(data);
-        alert('Đã copy cookies (' + Object.keys(JSON.parse(data)).length + ')');
-    }
-
-    function handleDownloadCookies() {
-        var data = JSON.stringify(exportCookies(), null, 2);
-        var filename = 'cookies-' + window.location.hostname + '-' + Date.now() + '.json';
-        downloadFile(data, filename, 'application/json');
-        alert('Đã tải file: ' + filename);
-    }
-
-    async function handleImport() {
-        var input = prompt('Dán dữ liệu storage (JSON hoặc nén):');
-        if (!input) return;
-
-        var result = await importFromData(input.trim());
-
-        if (result.success) {
-            if (confirm('Nhập thành công! ' + result.total + ' items\n\nReload trang?')) {
-                location.reload();
-            }
-        } else {
-            alert('Lỗi: ' + result.error);
-        }
-    }
-
-    function handleImportFromFile() {
-        pickAndReadFile(async function(text) {
-            var result = await importFromData(text.trim());
-            if (result.success) {
-                if (confirm('Nhập thành công! ' + result.total + ' items\n\nReload trang?')) {
-                    location.reload();
-                }
-            } else {
-                alert('Lỗi: ' + result.error);
-            }
-        });
     }
 
     function handleImportLocalStorage() {
@@ -445,6 +402,69 @@
         });
     }
 
+    // sessionStorage
+    function handleExportSessionStorage() {
+        if (isMobile()) {
+            alert('⚠️ Bạn đang dùng điện thoại!\n\nNên dùng "Tải File" thay vì "Copy".');
+        }
+        var data = JSON.stringify(exportSessionStorage(), null, 2);
+        GM_setClipboard(data);
+        alert('Đã copy sessionStorage (' + Object.keys(JSON.parse(data)).length + ' keys)');
+    }
+
+    function handleDownloadSessionStorage() {
+        var data = JSON.stringify(exportSessionStorage(), null, 2);
+        var filename = 'sessionStorage-' + window.location.hostname + '-' + Date.now() + '.json';
+        downloadFile(data, filename, 'application/json');
+        alert('Đã tải file: ' + filename);
+    }
+
+    function handleImportSessionStorage() {
+        var input = prompt('Dán dữ liệu sessionStorage (JSON):');
+        if (!input) return;
+
+        try {
+            var data = JSON.parse(input.trim());
+            var count = importSessionStorage(data);
+            if (confirm('Đã nhập ' + count + ' keys!\n\nReload trang?')) {
+                location.reload();
+            }
+        } catch (e) {
+            alert('Lỗi: ' + e.message);
+        }
+    }
+
+    function handleImportSessionStorageFromFile() {
+        pickAndReadFile(function(text) {
+            try {
+                var data = JSON.parse(text.trim());
+                var count = importSessionStorage(data);
+                if (confirm('Đã nhập ' + count + ' keys!\n\nReload trang?')) {
+                    location.reload();
+                }
+            } catch (e) {
+                alert('Lỗi: ' + e.message);
+            }
+        });
+    }
+
+    // Cookies
+    function handleExportCookies() {
+        if (isMobile()) {
+            alert('⚠️ Bạn đang dùng điện thoại!\n\nNên dùng "Tải File" thay vì "Copy".');
+        }
+        var data = JSON.stringify(exportCookies(), null, 2);
+        GM_setClipboard(data);
+        alert('Đã copy cookies (' + Object.keys(JSON.parse(data)).length + ')');
+    }
+
+    function handleDownloadCookies() {
+        var data = JSON.stringify(exportCookies(), null, 2);
+        var filename = 'cookies-' + window.location.hostname + '-' + Date.now() + '.json';
+        downloadFile(data, filename, 'application/json');
+        alert('Đã tải file: ' + filename);
+    }
+
     function handleImportCookies() {
         var input = prompt('Dán dữ liệu cookies (JSON):');
         if (!input) return;
@@ -470,6 +490,91 @@
                 }
             } catch (e) {
                 alert('Lỗi: ' + e.message);
+            }
+        });
+    }
+
+    // IndexedDB
+    async function handleExportIndexedDB() {
+        if (isMobile()) {
+            alert('⚠️ Bạn đang dùng điện thoại!\n\nNên dùng "Tải File" thay vì "Copy".');
+        }
+        try {
+            var data = await exportIndexedDB();
+            var jsonStr = JSON.stringify(data, null, 2);
+            GM_setClipboard(jsonStr);
+            alert('Đã copy IndexedDB (' + Object.keys(data).length + ' databases)');
+        } catch (e) {
+            alert('Lỗi: ' + e.message);
+        }
+    }
+
+    async function handleDownloadIndexedDB() {
+        try {
+            var data = await exportIndexedDB();
+            var jsonStr = JSON.stringify(data, null, 2);
+            var filename = 'indexedDB-' + window.location.hostname + '-' + Date.now() + '.json';
+            downloadFile(jsonStr, filename, 'application/json');
+            alert('Đã tải file: ' + filename);
+        } catch (e) {
+            alert('Lỗi: ' + e.message);
+        }
+    }
+
+    async function handleImportIndexedDB() {
+        var input = prompt('Dán dữ liệu IndexedDB (JSON):');
+        if (!input) return;
+
+        try {
+            var data = JSON.parse(input.trim());
+            var count = await importIndexedDB(data);
+            if (confirm('Đã nhập ' + count + ' records!\n\nReload trang?')) {
+                location.reload();
+            }
+        } catch (e) {
+            alert('Lỗi: ' + e.message);
+        }
+    }
+
+    function handleImportIndexedDBFromFile() {
+        pickAndReadFile(async function(text) {
+            try {
+                var data = JSON.parse(text.trim());
+                var count = await importIndexedDB(data);
+                if (confirm('Đã nhập ' + count + ' records!\n\nReload trang?')) {
+                    location.reload();
+                }
+            } catch (e) {
+                alert('Lỗi: ' + e.message);
+            }
+        });
+    }
+
+    // All Storage
+    async function handleImport() {
+        var input = prompt('Dán dữ liệu storage (JSON hoặc nén):');
+        if (!input) return;
+
+        var result = await importFromData(input.trim());
+
+        if (result.success) {
+            if (confirm('Nhập thành công! ' + result.total + ' items\n\nReload trang?')) {
+                location.reload();
+            }
+        } else {
+            alert('Lỗi: ' + result.error);
+        }
+    }
+
+    function handleImportFromFile() {
+        pickAndReadFile(async function(text) {
+            var result = await importFromData(text.trim());
+            if (result.success) {
+                if (confirm('Nhập thành công! ' + result.total + ' items\n\nReload trang?')) {
+                    location.reload();
+                }
+            } else {
+                alert('Lỗi: ' + result.error);
             }
         });
     }
@@ -514,20 +619,9 @@
 
     // ==================== MENU COMMANDS ====================
 
-    GM_registerMenuCommand('📤 Copy JSON (⚠️ PC)', handleExportJSON);
-    GM_registerMenuCommand('💾 Tải File JSON', handleDownloadJSON);
-    GM_registerMenuCommand('🗜️ Copy Nén (⚠️ PC)', handleExportCompressed);
-    GM_registerMenuCommand('💾 Tải File Nén (.txt)', handleDownloadCompressed);
-    GM_registerMenuCommand('📦 Copy localStorage (⚠️ PC)', handleExportLocalStorage);
-    GM_registerMenuCommand('💾 Tải localStorage', handleDownloadLocalStorage);
-    GM_registerMenuCommand('🍪 Copy Cookies (⚠️ PC)', handleExportCookies);
-    GM_registerMenuCommand('💾 Tải Cookies', handleDownloadCookies);
-    GM_registerMenuCommand('📥 Nhập Storage (Paste)', handleImport);
+    GM_registerMenuCommand('💾 Tải JSON (Tất cả)', handleDownloadJSON);
+    GM_registerMenuCommand('💾 Tải File Nén', handleDownloadCompressed);
     GM_registerMenuCommand('📂 Nhập Storage (File)', handleImportFromFile);
-    GM_registerMenuCommand('📦 Nhập localStorage (Paste)', handleImportLocalStorage);
-    GM_registerMenuCommand('📂 Nhập localStorage (File)', handleImportLocalStorageFromFile);
-    GM_registerMenuCommand('🍪 Nhập Cookies (Paste)', handleImportCookies);
-    GM_registerMenuCommand('📂 Nhập Cookies (File)', handleImportCookiesFromFile);
     GM_registerMenuCommand('👁️ Xem Storage', handleView);
     GM_registerMenuCommand('🗑️ Xóa Storage', handleClear);
 
@@ -566,8 +660,8 @@
                 z-index: 2147483646;\
                 box-shadow: 0 5px 25px rgba(0,0,0,0.5);\
                 display: none;\
-                min-width: 220px;\
-                max-height: 80vh;\
+                min-width: 230px;\
+                max-height: 85vh;\
                 overflow-y: auto;\
             }\
             #sb-menu.show {\
@@ -576,8 +670,8 @@
             #sb-menu button {\
                 display: block;\
                 width: 100%;\
-                padding: 12px 14px;\
-                margin: 3px 0;\
+                padding: 11px 12px;\
+                margin: 2px 0;\
                 background: #2d2d3d;\
                 border: none;\
                 border-radius: 8px;\
@@ -599,8 +693,8 @@
             }\
             .sb-menu-title {\
                 color: #888;\
-                font-size: 11px;\
-                padding: 8px 10px 4px;\
+                font-size: 10px;\
+                padding: 6px 10px 3px;\
                 text-transform: uppercase;\
             }\
             .sb-menu-warning {\
@@ -622,26 +716,41 @@
         menu.id = 'sb-menu';
 
         var menuData = [
-            { warning: isMobile() ? '📱 Đang dùng điện thoại - Nên tải file!' : null },
-            { title: '── XUẤT (TẢI FILE) ──' },
-            { text: '💾 Tải JSON (Tất cả)', action: handleDownloadJSON },
-            { text: '💾 Tải File Nén (.txt)', action: handleDownloadCompressed },
+            { warning: isMobile() ? '📱 Điện thoại - Nên tải file!' : null },
+
+            { title: '📦 TẤT CẢ STORAGE' },
+            { text: '💾 Tải JSON', action: handleDownloadJSON },
+            { text: '💾 Tải Nén (.txt)', action: handleDownloadCompressed },
+            { text: '📤 Copy JSON (⚠️PC)', action: handleExportJSON, warn: true },
+            { text: '📤 Copy Nén (⚠️PC)', action: handleExportCompressed, warn: true },
+            { text: '📂 Nhập từ File', action: handleImportFromFile },
+            { text: '📥 Nhập từ Paste', action: handleImport },
+
+            { title: '📦 LOCALSTORAGE' },
             { text: '💾 Tải localStorage', action: handleDownloadLocalStorage },
+            { text: '📤 Copy (⚠️PC)', action: handleExportLocalStorage, warn: true },
+            { text: '📂 Nhập từ File', action: handleImportLocalStorageFromFile },
+            { text: '📥 Nhập từ Paste', action: handleImportLocalStorage },
+
+            { title: '📋 SESSIONSTORAGE' },
+            { text: '💾 Tải sessionStorage', action: handleDownloadSessionStorage },
+            { text: '📤 Copy (⚠️PC)', action: handleExportSessionStorage, warn: true },
+            { text: '📂 Nhập từ File', action: handleImportSessionStorageFromFile },
+            { text: '📥 Nhập từ Paste', action: handleImportSessionStorage },
+
+            { title: '🍪 COOKIES' },
             { text: '💾 Tải Cookies', action: handleDownloadCookies },
-            { title: '── XUẤT (COPY - ⚠️ PC) ──' },
-            { text: '📤 Copy JSON', action: handleExportJSON, warn: true },
-            { text: '🗜️ Copy Nén', action: handleExportCompressed, warn: true },
-            { text: '📦 Copy localStorage', action: handleExportLocalStorage, warn: true },
-            { text: '🍪 Copy Cookies', action: handleExportCookies, warn: true },
-            { title: '── NHẬP (CHỌN FILE) ──' },
-            { text: '📂 Nhập Storage (File)', action: handleImportFromFile },
-            { text: '📂 Nhập localStorage (File)', action: handleImportLocalStorageFromFile },
-            { text: '📂 Nhập Cookies (File)', action: handleImportCookiesFromFile },
-            { title: '── NHẬP (PASTE) ──' },
-            { text: '📥 Nhập Storage (Paste)', action: handleImport },
-            { text: '📦 Nhập localStorage (Paste)', action: handleImportLocalStorage },
-            { text: '🍪 Nhập Cookies (Paste)', action: handleImportCookies },
-            { title: '── KHÁC ──' },
+            { text: '📤 Copy (⚠️PC)', action: handleExportCookies, warn: true },
+            { text: '📂 Nhập từ File', action: handleImportCookiesFromFile },
+            { text: '📥 Nhập từ Paste', action: handleImportCookies },
+
+            { title: '🗄️ INDEXEDDB' },
+            { text: '💾 Tải IndexedDB', action: handleDownloadIndexedDB },
+            { text: '📤 Copy (⚠️PC)', action: handleExportIndexedDB, warn: true },
+            { text: '📂 Nhập từ File', action: handleImportIndexedDBFromFile },
+            { text: '📥 Nhập từ Paste', action: handleImportIndexedDB },
+
+            { title: '⚙️ KHÁC' },
             { text: '👁️ Xem Storage', action: handleView },
             { text: '🗑️ Xóa Storage', action: handleClear }
         ];
@@ -770,8 +879,8 @@
             var left = rect.left;
             var top = rect.bottom + 10;
 
-            if (left + 220 > window.innerWidth) {
-                left = window.innerWidth - 230;
+            if (left + 230 > window.innerWidth) {
+                left = window.innerWidth - 240;
             }
             if (left < 10) {
                 left = 10;
@@ -813,7 +922,7 @@
 
         try {
             createFloatingUI();
-            console.log('💾 Storage Backup v2.4 Ready');
+            console.log('💾 Storage Backup v2.5 Ready');
         } catch (e) {
             console.error('Storage Backup error:', e);
         }
