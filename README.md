@@ -6,9 +6,10 @@ Userscript giúp **sao lưu / khôi phục** toàn bộ dữ liệu trình duy�
 
 ## 📥 Cài Đặt
 
-1. Cài tiện ích **Tampermonkey**
-2. Truy cập link cài đặt script
+1. Cài extension [Tampermonkey](https://www.tampermonkey.net/) cho trình duyệt
+2. Click vào link: **[Cài đặt script](https://raw.githubusercontent.com/YourUsername/web-storage-backup/main/web-storage-backup.user.js)**
 3. Nhấn **Install**
+4. Hoàn tất! Nút 💾 sẽ xuất hiện góc phải dưới màn hình
 
 ---
 
