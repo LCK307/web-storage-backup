@@ -120,7 +120,7 @@ Chrome 80+, Edge 80+, Firefox 113+, Safari 16.4+
 
 ## 🔒 Quy Trình Mã Hóa
 
-JSON → GZIP → Salt → PBKDF2 → IV → AES‑256‑GCM → Output
+JSON → GZIP(Có thể có hoặc không) → Salt → PBKDF2 → IV → AES‑256‑GCM → Output
 
 ---
 
