@@ -1,4 +1,4 @@
-# 💾 Web Storage Backup & Restore v3.0
+# 💾 Web Storage Backup & Restore
 
 Userscript giúp **sao lưu / khôi phục** toàn bộ dữ liệu trình duyệt: `localStorage`, `sessionStorage`, `cookies`, `IndexedDB` với **mã hóa AES‑256‑GCM** và **nén GZIP**.
 
