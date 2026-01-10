@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Web Storage Backup & Restore
 // @namespace    https://github.com/LCK307/web-storage-backup
-// @version      3.1
-// @description  Xuất/Nhập localStorage, cookies, sessionStorage, IndexedDB với mã hóa AES-256-GCM
+// @version      4.0
+// @description  Xuất/Nhập localStorage, sessionStorage, cookies, IndexedDB, Cache Storage, Service Worker với mã hóa AES-256-GCM
 // @author       LCK307
 // @match        *://*/*
 // @grant        GM_setClipboard
@@ -203,26 +203,187 @@
                         req.onerror = function() { reject(req.error); };
                     });
 
-                    result[dbInfo.name] = { version: db.version, stores: {} };
+                    result[dbInfo.name] = {
+                        version: db.version,
+                        stores: {}
+                    };
+
                     var storeNames = Array.from(db.objectStoreNames);
 
                     for (var j = 0; j < storeNames.length; j++) {
+                        var storeName = storeNames[j];
                         try {
-                            var tx = db.transaction(storeNames[j], 'readonly');
-                            var store = tx.objectStore(storeNames[j]);
-                            var storeData = await new Promise(function(resolve, reject) {
-                                var req = store.getAll();
-                                req.onsuccess = function() { resolve(req.result); };
-                                req.onerror = function() { reject(req.error); };
+                            var tx = db.transaction(storeName, 'readonly');
+                            var store = tx.objectStore(storeName);
+
+                            // Lấy metadata của store
+                            var storeInfo = {
+                                keyPath: store.keyPath,
+                                autoIncrement: store.autoIncrement,
+                                indexes: [],
+                                data: []
+                            };
+
+                            // Lấy thông tin indexes
+                            var indexNames = Array.from(store.indexNames);
+                            for (var k = 0; k < indexNames.length; k++) {
+                                var idx = store.index(indexNames[k]);
+                                storeInfo.indexes.push({
+                                    name: idx.name,
+                                    keyPath: idx.keyPath,
+                                    unique: idx.unique,
+                                    multiEntry: idx.multiEntry
+                                });
+                            }
+
+                            // Lấy data với keys bằng cursor
+                            var allData = await new Promise(function(resolve, reject) {
+                                var items = [];
+                                var cursorReq = store.openCursor();
+                                cursorReq.onsuccess = function(e) {
+                                    var cursor = e.target.result;
+                                    if (cursor) {
+                                        items.push({
+                                            key: cursor.key,
+                                            value: cursor.value
+                                        });
+                                        cursor.continue();
+                                    } else {
+                                        resolve(items);
+                                    }
+                                };
+                                cursorReq.onerror = function() { reject(cursorReq.error); };
                             });
-                            result[dbInfo.name].stores[storeNames[j]] = storeData;
-                        } catch (e) {}
+
+                            storeInfo.data = allData;
+                            result[dbInfo.name].stores[storeName] = storeInfo;
+                        } catch (e) {
+                            console.warn('Export store error:', storeName, e);
+                        }
                     }
                     db.close();
-                } catch (e) {}
+                } catch (e) {
+                    console.warn('Export DB error:', dbInfo.name, e);
+                }
             }
             return result;
         } catch (e) {
+            console.warn('Export IndexedDB error:', e);
+            return {};
+        }
+    }
+
+    async function exportCacheStorage() {
+        if (!('caches' in window)) return {};
+
+        try {
+            var cacheNames = await caches.keys();
+            var result = {};
+
+            for (var i = 0; i < cacheNames.length; i++) {
+                var cacheName = cacheNames[i];
+                try {
+                    var cache = await caches.open(cacheName);
+                    var requests = await cache.keys();
+
+                    result[cacheName] = [];
+
+                    for (var j = 0; j < requests.length; j++) {
+                        var request = requests[j];
+                        try {
+                            var response = await cache.match(request);
+                            if (!response) continue;
+
+                            // Xác định loại content
+                            var contentType = response.headers.get('content-type') || '';
+                            var body;
+                            var bodyType;
+
+                            if (contentType.includes('image') ||
+                                contentType.includes('audio') ||
+                                contentType.includes('video') ||
+                                contentType.includes('application/octet-stream')) {
+                                // Binary data - convert to base64
+                                var arrayBuffer = await response.clone().arrayBuffer();
+                                body = uint8ToBase64(new Uint8Array(arrayBuffer));
+                                bodyType = 'base64';
+                            } else {
+                                // Text data
+                                body = await response.clone().text();
+                                bodyType = 'text';
+                            }
+
+                            // Lấy headers
+                            var headers = {};
+                            response.headers.forEach(function(value, key) {
+                                headers[key] = value;
+                            });
+
+                            result[cacheName].push({
+                                url: request.url,
+                                method: request.method,
+                                headers: headers,
+                                body: body,
+                                bodyType: bodyType,
+                                status: response.status,
+                                statusText: response.statusText
+                            });
+                        } catch (e) {
+                            console.warn('Export cache item error:', request.url, e);
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Export cache error:', cacheName, e);
+                }
+            }
+            return result;
+        } catch (e) {
+            console.warn('Export CacheStorage error:', e);
+            return {};
+        }
+    }
+
+    async function exportServiceWorkers() {
+        if (!('serviceWorker' in navigator)) return {};
+
+        try {
+            var registrations = await navigator.serviceWorker.getRegistrations();
+            var result = [];
+
+            for (var i = 0; i < registrations.length; i++) {
+                var reg = registrations[i];
+                var swInfo = {
+                    scope: reg.scope,
+                    updateViaCache: reg.updateViaCache
+                };
+
+                if (reg.active) {
+                    swInfo.active = {
+                        scriptURL: reg.active.scriptURL,
+                        state: reg.active.state
+                    };
+                }
+
+                if (reg.waiting) {
+                    swInfo.waiting = {
+                        scriptURL: reg.waiting.scriptURL,
+                        state: reg.waiting.state
+                    };
+                }
+
+                if (reg.installing) {
+                    swInfo.installing = {
+                        scriptURL: reg.installing.scriptURL,
+                        state: reg.installing.state
+                    };
+                }
+
+                result.push(swInfo);
+            }
+
+            return result;
+        } catch (e) {
+            console.warn('Export ServiceWorkers error:', e);
             return {};
         }
     }
@@ -231,13 +392,17 @@
         return {
             _meta: {
                 hostname: window.location.hostname,
+                pathname: window.location.pathname,
                 exportedAt: new Date().toISOString(),
-                version: '3.1'
+                userAgent: navigator.userAgent,
+                version: '4.0'
             },
             localStorage: exportLocalStorage(),
             sessionStorage: exportSessionStorage(),
             cookies: exportCookies(),
-            indexedDB: await exportIndexedDB()
+            indexedDB: await exportIndexedDB(),
+            cacheStorage: await exportCacheStorage(),
+            serviceWorkers: await exportServiceWorkers()
         };
     }
 
@@ -247,7 +412,12 @@
         if (!data) return 0;
         var count = 0;
         for (var key in data) {
-            try { localStorage.setItem(key, data[key]); count++; } catch (e) {}
+            try {
+                localStorage.setItem(key, data[key]);
+                count++;
+            } catch (e) {
+                console.warn('Import localStorage error:', key, e);
+            }
         }
         return count;
     }
@@ -256,7 +426,12 @@
         if (!data) return 0;
         var count = 0;
         for (var key in data) {
-            try { sessionStorage.setItem(key, data[key]); count++; } catch (e) {}
+            try {
+                sessionStorage.setItem(key, data[key]);
+                count++;
+            } catch (e) {
+                console.warn('Import sessionStorage error:', key, e);
+            }
         }
         return count;
     }
@@ -266,11 +441,14 @@
         var count = 0;
         var expires = new Date();
         expires.setFullYear(expires.getFullYear() + 1);
+
         for (var name in data) {
             try {
                 document.cookie = name + '=' + data[name] + '; expires=' + expires.toUTCString() + '; path=/';
                 count++;
-            } catch (e) {}
+            } catch (e) {
+                console.warn('Import cookie error:', name, e);
+            }
         }
         return count;
     }
@@ -282,57 +460,205 @@
         for (var dbName in data) {
             var dbData = data[dbName];
             try {
-                await new Promise(function(r) {
+                // Xóa DB cũ
+                await new Promise(function(resolve) {
                     var req = indexedDB.deleteDatabase(dbName);
-                    req.onsuccess = r; req.onerror = r; req.onblocked = r;
+                    req.onsuccess = resolve;
+                    req.onerror = resolve;
+                    req.onblocked = resolve;
                 });
 
+                // Tạo DB mới
                 var db = await new Promise(function(resolve, reject) {
                     var req = indexedDB.open(dbName, dbData.version || 1);
+
                     req.onupgradeneeded = function(e) {
                         var database = e.target.result;
+
                         for (var storeName in dbData.stores) {
-                            if (!database.objectStoreNames.contains(storeName)) {
-                                database.createObjectStore(storeName, { autoIncrement: true });
+                            var storeInfo = dbData.stores[storeName];
+
+                            // Xác định options cho object store
+                            var storeOptions = {};
+
+                            if (storeInfo.keyPath !== null && storeInfo.keyPath !== undefined) {
+                                storeOptions.keyPath = storeInfo.keyPath;
+                            }
+
+                            if (storeInfo.autoIncrement) {
+                                storeOptions.autoIncrement = true;
+                            }
+
+                            // Nếu không có keyPath và không autoIncrement, đặt mặc định
+                            if (!storeOptions.keyPath && !storeOptions.autoIncrement) {
+                                storeOptions.autoIncrement = true;
+                            }
+
+                            var store = database.createObjectStore(storeName, storeOptions);
+
+                            // Tạo indexes
+                            if (storeInfo.indexes && storeInfo.indexes.length > 0) {
+                                for (var i = 0; i < storeInfo.indexes.length; i++) {
+                                    var idx = storeInfo.indexes[i];
+                                    try {
+                                        store.createIndex(idx.name, idx.keyPath, {
+                                            unique: idx.unique || false,
+                                            multiEntry: idx.multiEntry || false
+                                        });
+                                    } catch (e) {
+                                        console.warn('Create index error:', idx.name, e);
+                                    }
+                                }
                             }
                         }
                     };
+
                     req.onsuccess = function() { resolve(req.result); };
                     req.onerror = function() { reject(req.error); };
                 });
 
+                // Import data vào từng store
                 for (var storeName in dbData.stores) {
                     if (!db.objectStoreNames.contains(storeName)) continue;
+
+                    var storeInfo = dbData.stores[storeName];
                     var tx = db.transaction(storeName, 'readwrite');
                     var store = tx.objectStore(storeName);
-                    var items = dbData.stores[storeName];
+
+                    // Hỗ trợ cả format cũ và mới
+                    var items = storeInfo.data || storeInfo;
+                    if (!Array.isArray(items)) continue;
+
                     for (var i = 0; i < items.length; i++) {
-                        try { store.add(items[i]); count++; } catch (e) {}
+                        try {
+                            var item = items[i];
+
+                            if (item && item.hasOwnProperty('key') && item.hasOwnProperty('value')) {
+                                // Format mới với key/value
+                                if (storeInfo.keyPath) {
+                                    store.put(item.value);
+                                } else {
+                                    store.put(item.value, item.key);
+                                }
+                            } else {
+                                // Format cũ - chỉ có value
+                                store.add(item);
+                            }
+                            count++;
+                        } catch (e) {
+                            console.warn('Import IndexedDB item error:', e);
+                        }
                     }
-                    await new Promise(function(r) { tx.oncomplete = r; tx.onerror = r; });
+
+                    await new Promise(function(resolve) {
+                        tx.oncomplete = resolve;
+                        tx.onerror = resolve;
+                    });
                 }
+
                 db.close();
-            } catch (e) {}
+            } catch (e) {
+                console.warn('Import IndexedDB error:', dbName, e);
+            }
         }
+
         return count;
+    }
+
+    async function importCacheStorage(data) {
+        if (!data || !('caches' in window)) return 0;
+        var count = 0;
+
+        for (var cacheName in data) {
+            try {
+                // Xóa cache cũ
+                await caches.delete(cacheName);
+
+                // Tạo cache mới
+                var cache = await caches.open(cacheName);
+                var items = data[cacheName];
+
+                for (var i = 0; i < items.length; i++) {
+                    var item = items[i];
+                    try {
+                        var body;
+                        if (item.bodyType === 'base64') {
+                            // Convert base64 về binary
+                            body = base64ToUint8(item.body);
+                        } else {
+                            body = item.body;
+                        }
+
+                        var response = new Response(body, {
+                            status: item.status || 200,
+                            statusText: item.statusText || 'OK',
+                            headers: item.headers || {}
+                        });
+
+                        await cache.put(item.url, response);
+                        count++;
+                    } catch (e) {
+                        console.warn('Import cache item error:', item.url, e);
+                    }
+                }
+            } catch (e) {
+                console.warn('Import cache error:', cacheName, e);
+            }
+        }
+
+        return count;
+    }
+
+    function importServiceWorkers(data) {
+        // Service Workers không thể được đăng ký lại từ userscript
+        // Chỉ có thể hiển thị thông tin
+        if (!data || data.length === 0) return 0;
+
+        console.log('📋 Service Workers info (không thể tự động đăng ký):');
+        for (var i = 0; i < data.length; i++) {
+            var sw = data[i];
+            console.log('  - Scope:', sw.scope);
+            if (sw.active) {
+                console.log('    Script:', sw.active.scriptURL);
+            }
+        }
+
+        return data.length;
     }
 
     async function importFromJSON(jsonStr) {
         try {
             var data = JSON.parse(jsonStr);
 
+            // Kiểm tra hostname
             if (data._meta && data._meta.hostname !== window.location.hostname) {
-                if (!confirm('Dữ liệu từ: ' + data._meta.hostname + '\nTrang này: ' + window.location.hostname + '\n\nTiếp tục?')) {
+                if (!confirm(
+                    '⚠️ Cảnh báo hostname khác nhau!\n\n' +
+                    'Dữ liệu từ: ' + data._meta.hostname + '\n' +
+                    'Trang này: ' + window.location.hostname + '\n\n' +
+                    'Tiếp tục nhập?'
+                )) {
                     return { success: false, error: 'Hủy bởi người dùng' };
                 }
             }
 
-            var total = importLocalStorage(data.localStorage) +
-                        importSessionStorage(data.sessionStorage) +
-                        importCookies(data.cookies) +
-                        await importIndexedDB(data.indexedDB);
+            var results = {
+                localStorage: importLocalStorage(data.localStorage),
+                sessionStorage: importSessionStorage(data.sessionStorage),
+                cookies: importCookies(data.cookies),
+                indexedDB: await importIndexedDB(data.indexedDB),
+                cacheStorage: await importCacheStorage(data.cacheStorage),
+                serviceWorkers: importServiceWorkers(data.serviceWorkers)
+            };
 
-            return { success: true, total: total };
+            var total = results.localStorage + results.sessionStorage +
+                       results.cookies + results.indexedDB + results.cacheStorage;
+
+            return {
+                success: true,
+                total: total,
+                details: results
+            };
         } catch (e) {
             return { success: false, error: e.message };
         }
@@ -381,7 +707,7 @@
 
         // Bước 1: Giải mã (nếu .enc)
         if (filename.endsWith('.enc')) {
-            if (!password) throw new Error('Cần mật khẩu!');
+            if (!password) throw new Error('Cần mật khẩu để giải mã!');
             data = await decrypt(new Uint8Array(data), password);
         }
 
@@ -423,8 +749,12 @@
             if (e.target.files.length > 0) {
                 var file = e.target.files[0];
                 var reader = new FileReader();
-                reader.onload = function(ev) { callback(ev.target.result, file.name); };
-                reader.onerror = function() { alert('Không đọc được file!'); };
+                reader.onload = function(ev) {
+                    callback(ev.target.result, file.name);
+                };
+                reader.onerror = function() {
+                    alert('❌ Không đọc được file!');
+                };
                 reader.readAsArrayBuffer(file);
             }
         };
@@ -437,13 +767,13 @@
         var password = null;
 
         if (settings.encrypt) {
-            password = prompt('🔐 Tạo mật khẩu (tối thiểu 4 ký tự):');
+            password = prompt('🔐 Tạo mật khẩu bảo vệ (tối thiểu 4 ký tự):');
             if (!password || password.length < 4) {
                 alert('❌ Mật khẩu phải có ít nhất 4 ký tự!');
                 return;
             }
-            var confirm = prompt('🔐 Nhập lại mật khẩu:');
-            if (password !== confirm) {
+            var confirmPass = prompt('🔐 Nhập lại mật khẩu để xác nhận:');
+            if (password !== confirmPass) {
                 alert('❌ Mật khẩu không khớp!');
                 return;
             }
@@ -453,23 +783,30 @@
             var jsonData = await exportAll();
             var result = await processExport(jsonData, password);
 
-            var filename = 'storage-' + window.location.hostname + '-' + Date.now() + result.ext;
+            var timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            var filename = 'storage-' + window.location.hostname + '-' + timestamp + result.ext;
             downloadFile(result.data, filename);
 
-            var msg = '✅ Đã tải: ' + filename + '\n\n';
-            msg += '📦 Gốc: ' + (result.info.original / 1024).toFixed(1) + ' KB\n';
+            var msg = '✅ Đã xuất thành công!\n\n';
+            msg += '📁 File: ' + filename + '\n\n';
+            msg += '📊 Thống kê:\n';
+            msg += '├ Gốc: ' + (result.info.original / 1024).toFixed(2) + ' KB\n';
+
             if (settings.compress) {
-                msg += '🗜️ Sau nén: ' + (result.info.compressed / 1024).toFixed(1) + ' KB\n';
+                msg += '├ Sau nén: ' + (result.info.compressed / 1024).toFixed(2) + ' KB\n';
             }
+
             if (settings.encrypt) {
-                msg += '🔐 Sau mã hóa: ' + (result.info.final / 1024).toFixed(1) + ' KB\n';
+                msg += '├ Sau mã hóa: ' + (result.info.final / 1024).toFixed(2) + ' KB\n';
             }
+
             var ratio = ((1 - result.info.final / result.info.original) * 100).toFixed(1);
-            msg += '📉 Giảm: ' + ratio + '%';
+            msg += '└ Giảm: ' + ratio + '%';
 
             alert(msg);
         } catch (e) {
-            alert('❌ Lỗi: ' + e.message);
+            alert('❌ Lỗi xuất dữ liệu: ' + e.message);
+            console.error('Export error:', e);
         }
     }
 
@@ -477,47 +814,74 @@
         var password = null;
 
         if (settings.encrypt) {
-            password = prompt('🔐 Tạo mật khẩu:');
-            if (!password || password.length < 4) return;
+            password = prompt('🔐 Tạo mật khẩu bảo vệ:');
+            if (!password || password.length < 4) {
+                alert('❌ Mật khẩu phải có ít nhất 4 ký tự!');
+                return;
+            }
         }
 
         try {
             var data;
             switch (type) {
-                case 'localStorage': data = exportLocalStorage(); break;
-                case 'sessionStorage': data = exportSessionStorage(); break;
-                case 'cookies': data = exportCookies(); break;
-                case 'indexedDB': data = await exportIndexedDB(); break;
+                case 'localStorage':
+                    data = exportLocalStorage();
+                    break;
+                case 'sessionStorage':
+                    data = exportSessionStorage();
+                    break;
+                case 'cookies':
+                    data = exportCookies();
+                    break;
+                case 'indexedDB':
+                    data = await exportIndexedDB();
+                    break;
+                case 'cacheStorage':
+                    data = await exportCacheStorage();
+                    break;
+                case 'serviceWorkers':
+                    data = await exportServiceWorkers();
+                    break;
             }
 
             var result = await processExport(data, password);
-            var filename = type + '-' + window.location.hostname + '-' + Date.now() + result.ext;
+            var timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            var filename = type + '-' + window.location.hostname + '-' + timestamp + result.ext;
             downloadFile(result.data, filename);
-            alert('✅ Đã tải: ' + filename);
+
+            alert('✅ Đã xuất ' + type + '!\n📁 ' + filename);
         } catch (e) {
             alert('❌ Lỗi: ' + e.message);
+            console.error('Export single error:', e);
         }
     }
 
     async function handleCopyAll() {
         if (isMobile()) {
-            alert('⚠️ Điện thoại nên dùng "Tải File"!');
+            alert('⚠️ Trên điện thoại, nên sử dụng "Tải File" để tránh mất dữ liệu!');
         }
 
         var password = null;
         if (settings.encrypt) {
-            password = prompt('🔐 Tạo mật khẩu:');
-            if (!password || password.length < 4) return;
+            password = prompt('🔐 Tạo mật khẩu bảo vệ:');
+            if (!password || password.length < 4) {
+                alert('❌ Mật khẩu phải có ít nhất 4 ký tự!');
+                return;
+            }
         }
 
         try {
             var jsonData = await exportAll();
             var result = await processExport(jsonData, password);
             var base64 = uint8ToBase64(result.data);
+
             GM_setClipboard(base64);
-            alert('✅ Đã copy! (' + (base64.length / 1024).toFixed(1) + ' KB)');
+
+            var sizeKB = (base64.length / 1024).toFixed(2);
+            alert('✅ Đã copy vào clipboard!\n\n📊 Kích thước: ' + sizeKB + ' KB\n\n💡 Dán vào chat hoặc lưu vào file text.');
         } catch (e) {
             alert('❌ Lỗi: ' + e.message);
+            console.error('Copy error:', e);
         }
     }
 
@@ -526,46 +890,62 @@
             try {
                 var password = null;
                 if (filename.endsWith('.enc')) {
-                    password = prompt('🔐 Nhập mật khẩu:');
-                    if (!password) return;
+                    password = prompt('🔐 Nhập mật khẩu để giải mã:');
+                    if (!password) {
+                        alert('❌ Cần mật khẩu để mở file mã hóa!');
+                        return;
+                    }
                 }
 
                 var jsonStr = await processImport(content, filename, password);
                 var result = await importFromJSON(jsonStr);
 
                 if (result.success) {
-                    if (confirm('✅ Đã nhập ' + result.total + ' items!\n\n🔄 Reload trang?')) {
+                    var msg = '✅ Nhập dữ liệu thành công!\n\n';
+                    msg += '📊 Chi tiết:\n';
+                    msg += '├ localStorage: ' + result.details.localStorage + ' items\n';
+                    msg += '├ sessionStorage: ' + result.details.sessionStorage + ' items\n';
+                    msg += '├ cookies: ' + result.details.cookies + ' items\n';
+                    msg += '├ IndexedDB: ' + result.details.indexedDB + ' items\n';
+                    msg += '├ Cache Storage: ' + result.details.cacheStorage + ' items\n';
+                    msg += '└ Service Workers: ' + result.details.serviceWorkers + ' (chỉ info)\n\n';
+                    msg += '📦 Tổng cộng: ' + result.total + ' items';
+
+                    if (confirm(msg + '\n\n🔄 Reload trang để áp dụng?')) {
                         location.reload();
                     }
                 } else {
-                    alert('❌ Lỗi: ' + result.error);
+                    alert('❌ Lỗi nhập dữ liệu: ' + result.error);
                 }
             } catch (e) {
                 alert('❌ Lỗi: ' + e.message);
+                console.error('Import file error:', e);
             }
         });
     }
 
     function handleImportPaste() {
-        var input = prompt('📥 Dán dữ liệu (JSON hoặc Base64):');
-        if (!input) return;
+        var input = prompt('📥 Dán dữ liệu vào đây (JSON hoặc Base64):');
+        if (!input || !input.trim()) return;
+
+        input = input.trim();
 
         (async function() {
             try {
                 var jsonStr;
 
-                // Thử parse JSON trước
+                // Thử parse JSON trực tiếp
                 try {
                     JSON.parse(input);
                     jsonStr = input;
                 } catch (e) {
-                    // Thử decode Base64
-                    var data = base64ToUint8(input.trim());
+                    // Không phải JSON, thử decode Base64
+                    var data = base64ToUint8(input);
 
-                    // Kiểm tra có mã hóa không (hỏi password)
+                    // Hỏi password nếu cần
                     var password = prompt('🔐 Nhập mật khẩu (bỏ trống nếu không mã hóa):');
 
-                    if (password) {
+                    if (password && password.length > 0) {
                         data = await decrypt(data, password);
                     }
 
@@ -579,43 +959,183 @@
                 }
 
                 var result = await importFromJSON(jsonStr);
+
                 if (result.success) {
-                    if (confirm('✅ Đã nhập ' + result.total + ' items!\n\n🔄 Reload?')) {
+                    var msg = '✅ Nhập thành công: ' + result.total + ' items';
+
+                    if (confirm(msg + '\n\n🔄 Reload trang?')) {
                         location.reload();
                     }
                 } else {
                     alert('❌ Lỗi: ' + result.error);
                 }
             } catch (e) {
-                alert('❌ Lỗi: ' + e.message);
+                alert('❌ Lỗi xử lý dữ liệu: ' + e.message);
+                console.error('Import paste error:', e);
             }
         })();
     }
 
-    function handleView() {
+    async function handleView() {
         var ls = localStorage.length;
         var ss = sessionStorage.length;
         var ck = document.cookie.split(';').filter(function(c) { return c.trim(); }).length;
-        alert('📊 ' + window.location.hostname + '\n\n📦 localStorage: ' + ls + '\n📋 sessionStorage: ' + ss + '\n🍪 cookies: ' + ck);
+
+        var idbCount = 0;
+        var idbNames = [];
+        try {
+            if (indexedDB.databases) {
+                var dbs = await indexedDB.databases();
+                idbCount = dbs.length;
+                idbNames = dbs.map(function(db) { return db.name; });
+            }
+        } catch (e) {}
+
+        var cacheCount = 0;
+        var cacheNames = [];
+        try {
+            if ('caches' in window) {
+                cacheNames = await caches.keys();
+                cacheCount = cacheNames.length;
+            }
+        } catch (e) {}
+
+        var swCount = 0;
+        try {
+            if ('serviceWorker' in navigator) {
+                var regs = await navigator.serviceWorker.getRegistrations();
+                swCount = regs.length;
+            }
+        } catch (e) {}
+
+        var msg = '📊 Storage của ' + window.location.hostname + '\n\n';
+        msg += '📦 localStorage: ' + ls + ' items\n';
+        msg += '📋 sessionStorage: ' + ss + ' items\n';
+        msg += '🍪 cookies: ' + ck + ' items\n';
+        msg += '🗄️ IndexedDB: ' + idbCount + ' databases';
+        if (idbNames.length > 0) {
+            msg += '\n   └ ' + idbNames.join(', ');
+        }
+        msg += '\n📦 Cache Storage: ' + cacheCount + ' caches';
+        if (cacheNames.length > 0) {
+            msg += '\n   └ ' + cacheNames.join(', ');
+        }
+        msg += '\n⚙️ Service Workers: ' + swCount + ' registrations';
+
+        alert(msg);
     }
 
-    function handleClear() {
-        var choice = prompt('🗑️ Xóa:\n1 - localStorage\n2 - sessionStorage\n3 - cookies\n4 - Tất cả\n0 - Hủy');
-        if (choice === '1') { localStorage.clear(); alert('✅ Đã xóa localStorage'); }
-        else if (choice === '2') { sessionStorage.clear(); alert('✅ Đã xóa sessionStorage'); }
+    async function handleClear() {
+        var choice = prompt(
+            '🗑️ Chọn loại dữ liệu cần xóa:\n\n' +
+            '1 - localStorage\n' +
+            '2 - sessionStorage\n' +
+            '3 - cookies\n' +
+            '4 - IndexedDB\n' +
+            '5 - Cache Storage\n' +
+            '6 - Service Workers\n' +
+            '7 - ⚠️ Tất cả\n' +
+            '0 - Hủy'
+        );
+
+        if (choice === '1') {
+            localStorage.clear();
+            alert('✅ Đã xóa localStorage');
+        }
+        else if (choice === '2') {
+            sessionStorage.clear();
+            alert('✅ Đã xóa sessionStorage');
+        }
         else if (choice === '3') {
             document.cookie.split(';').forEach(function(c) {
-                document.cookie = c.split('=')[0].trim() + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+                var name = c.split('=')[0].trim();
+                document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
             });
             alert('✅ Đã xóa cookies');
         }
-        else if (choice === '4' && confirm('⚠️ Xóa tất cả?')) {
-            localStorage.clear();
-            sessionStorage.clear();
-            document.cookie.split(';').forEach(function(c) {
-                document.cookie = c.split('=')[0].trim() + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
-            });
-            alert('✅ Đã xóa!');
+        else if (choice === '4') {
+            if (confirm('⚠️ Xóa tất cả IndexedDB databases?')) {
+                try {
+                    var dbs = await indexedDB.databases();
+                    for (var i = 0; i < dbs.length; i++) {
+                        indexedDB.deleteDatabase(dbs[i].name);
+                    }
+                    alert('✅ Đã xóa IndexedDB');
+                } catch (e) {
+                    alert('❌ Lỗi: ' + e.message);
+                }
+            }
+        }
+        else if (choice === '5') {
+            if (confirm('⚠️ Xóa tất cả Cache Storage?')) {
+                try {
+                    var cacheNames = await caches.keys();
+                    for (var i = 0; i < cacheNames.length; i++) {
+                        await caches.delete(cacheNames[i]);
+                    }
+                    alert('✅ Đã xóa Cache Storage');
+                } catch (e) {
+                    alert('❌ Lỗi: ' + e.message);
+                }
+            }
+        }
+        else if (choice === '6') {
+            if (confirm('⚠️ Hủy đăng ký tất cả Service Workers?')) {
+                try {
+                    var regs = await navigator.serviceWorker.getRegistrations();
+                    for (var i = 0; i < regs.length; i++) {
+                        await regs[i].unregister();
+                    }
+                    alert('✅ Đã hủy đăng ký Service Workers');
+                } catch (e) {
+                    alert('❌ Lỗi: ' + e.message);
+                }
+            }
+        }
+        else if (choice === '7') {
+            if (confirm('⚠️ XÓA TẤT CẢ dữ liệu?\n\nHành động này không thể hoàn tác!')) {
+                try {
+                    // localStorage
+                    localStorage.clear();
+
+                    // sessionStorage
+                    sessionStorage.clear();
+
+                    // Cookies
+                    document.cookie.split(';').forEach(function(c) {
+                        var name = c.split('=')[0].trim();
+                        document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+                    });
+
+                    // IndexedDB
+                    if (indexedDB.databases) {
+                        var dbs = await indexedDB.databases();
+                        for (var i = 0; i < dbs.length; i++) {
+                            indexedDB.deleteDatabase(dbs[i].name);
+                        }
+                    }
+
+                    // Cache Storage
+                    if ('caches' in window) {
+                        var cacheNames = await caches.keys();
+                        for (var i = 0; i < cacheNames.length; i++) {
+                            await caches.delete(cacheNames[i]);
+                        }
+                    }
+
+                    // Service Workers
+                    if ('serviceWorker' in navigator) {
+                        var regs = await navigator.serviceWorker.getRegistrations();
+                        for (var i = 0; i < regs.length; i++) {
+                            await regs[i].unregister();
+                        }
+                    }
+
+                    alert('✅ Đã xóa tất cả dữ liệu!');
+                } catch (e) {
+                    alert('❌ Lỗi: ' + e.message);
+                }
+            }
         }
     }
 
@@ -625,127 +1145,199 @@
         GM_addStyle('\
             #sb-btn {\
                 position: fixed;\
-                width: 44px;\
-                height: 44px;\
-                background: linear-gradient(135deg, #667eea, #764ba2);\
+                width: 48px;\
+                height: 48px;\
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);\
                 border: none;\
                 border-radius: 50%;\
                 color: white;\
-                font-size: 18px;\
+                font-size: 20px;\
                 z-index: 2147483647;\
-                box-shadow: 0 2px 12px rgba(0,0,0,0.3);\
+                box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);\
                 display: flex;\
                 align-items: center;\
                 justify-content: center;\
                 touch-action: none;\
                 user-select: none;\
                 cursor: pointer;\
+                transition: transform 0.2s, box-shadow 0.2s;\
             }\
-            #sb-btn.dragging { opacity: 0.8; transform: scale(1.1); }\
+            #sb-btn:hover {\
+                transform: scale(1.1);\
+                box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);\
+            }\
+            #sb-btn.dragging {\
+                opacity: 0.9;\
+                transform: scale(1.15);\
+            }\
             #sb-menu {\
                 position: fixed;\
-                background: #1a1a2e;\
-                border-radius: 14px;\
-                padding: 12px;\
+                background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);\
+                border-radius: 16px;\
+                padding: 16px;\
                 z-index: 2147483646;\
-                box-shadow: 0 8px 30px rgba(0,0,0,0.5);\
+                box-shadow: 0 10px 40px rgba(0,0,0,0.5);\
                 display: none;\
-                min-width: 260px;\
-                max-height: 80vh;\
+                min-width: 280px;\
+                max-width: 320px;\
+                max-height: 85vh;\
                 overflow-y: auto;\
+                border: 1px solid rgba(255,255,255,0.1);\
             }\
-            #sb-menu.show { display: block; }\
+            #sb-menu.show {\
+                display: block;\
+                animation: sb-fadeIn 0.2s ease;\
+            }\
+            @keyframes sb-fadeIn {\
+                from { opacity: 0; transform: translateY(-10px); }\
+                to { opacity: 1; transform: translateY(0); }\
+            }\
+            #sb-menu::-webkit-scrollbar {\
+                width: 6px;\
+            }\
+            #sb-menu::-webkit-scrollbar-track {\
+                background: rgba(255,255,255,0.05);\
+                border-radius: 3px;\
+            }\
+            #sb-menu::-webkit-scrollbar-thumb {\
+                background: rgba(255,255,255,0.2);\
+                border-radius: 3px;\
+            }\
             .sb-title {\
                 color: #fff;\
-                font-size: 14px;\
+                font-size: 16px;\
                 font-weight: bold;\
-                margin-bottom: 12px;\
+                margin-bottom: 16px;\
                 text-align: center;\
+                display: flex;\
+                align-items: center;\
+                justify-content: center;\
+                gap: 8px;\
+            }\
+            .sb-version {\
+                font-size: 11px;\
+                color: #888;\
+                font-weight: normal;\
             }\
             .sb-toggles {\
-                background: #252540;\
-                border-radius: 10px;\
-                padding: 10px;\
-                margin-bottom: 12px;\
+                background: rgba(255,255,255,0.05);\
+                border-radius: 12px;\
+                padding: 12px;\
+                margin-bottom: 16px;\
             }\
             .sb-toggle {\
                 display: flex;\
                 align-items: center;\
                 justify-content: space-between;\
-                padding: 8px 0;\
+                padding: 10px 0;\
                 color: #fff;\
                 font-size: 13px;\
             }\
-            .sb-toggle:not(:last-child) { border-bottom: 1px solid #333; }\
+            .sb-toggle:not(:last-child) {\
+                border-bottom: 1px solid rgba(255,255,255,0.1);\
+            }\
+            .sb-toggle-label {\
+                display: flex;\
+                align-items: center;\
+                gap: 8px;\
+            }\
             .sb-switch {\
                 position: relative;\
-                width: 44px;\
-                height: 24px;\
+                width: 46px;\
+                height: 26px;\
                 background: #444;\
-                border-radius: 12px;\
+                border-radius: 13px;\
                 cursor: pointer;\
-                transition: background 0.2s;\
+                transition: background 0.3s;\
             }\
-            .sb-switch.on { background: #667eea; }\
+            .sb-switch.on {\
+                background: linear-gradient(135deg, #667eea, #764ba2);\
+            }\
             .sb-switch::after {\
                 content: "";\
                 position: absolute;\
-                top: 2px;\
-                left: 2px;\
+                top: 3px;\
+                left: 3px;\
                 width: 20px;\
                 height: 20px;\
                 background: white;\
                 border-radius: 50%;\
-                transition: transform 0.2s;\
+                transition: transform 0.3s;\
+                box-shadow: 0 2px 4px rgba(0,0,0,0.2);\
             }\
-            .sb-switch.on::after { transform: translateX(20px); }\
+            .sb-switch.on::after {\
+                transform: translateX(20px);\
+            }\
             .sb-section {\
-                margin-bottom: 10px;\
+                margin-bottom: 12px;\
             }\
             .sb-section-title {\
                 color: #888;\
-                font-size: 10px;\
+                font-size: 11px;\
                 text-transform: uppercase;\
-                margin-bottom: 6px;\
+                letter-spacing: 1px;\
+                margin-bottom: 8px;\
                 padding-left: 4px;\
             }\
             .sb-btn-menu {\
-                display: block;\
+                display: flex;\
+                align-items: center;\
+                gap: 10px;\
                 width: 100%;\
-                padding: 10px 12px;\
+                padding: 12px 14px;\
                 margin: 4px 0;\
-                background: #2d2d4a;\
-                border: none;\
-                border-radius: 8px;\
+                background: rgba(255,255,255,0.05);\
+                border: 1px solid rgba(255,255,255,0.08);\
+                border-radius: 10px;\
                 color: white;\
                 font-size: 13px;\
                 text-align: left;\
                 cursor: pointer;\
-                transition: background 0.15s;\
+                transition: all 0.2s;\
             }\
-            .sb-btn-menu:hover { background: #3d3d5a; }\
-            .sb-btn-menu:active { background: #4d4d6a; }\
-            .sb-btn-menu.warn { color: #ffaa00; }\
-            .sb-warning {\
-                background: #3d2d1d;\
-                color: #ffaa00;\
-                font-size: 11px;\
-                padding: 8px;\
-                border-radius: 8px;\
-                margin-bottom: 10px;\
+            .sb-btn-menu:hover {\
+                background: rgba(255,255,255,0.1);\
+                border-color: rgba(255,255,255,0.15);\
+                transform: translateX(4px);\
+            }\
+            .sb-btn-menu:active {\
+                background: rgba(255,255,255,0.15);\
+            }\
+            .sb-btn-menu.warn {\
+                color: #ffa726;\
+                border-color: rgba(255,167,38,0.3);\
+            }\
+            .sb-btn-menu.danger {\
+                color: #ef5350;\
+                border-color: rgba(239,83,80,0.3);\
+            }\
+            .sb-btn-menu .sb-icon {\
+                font-size: 16px;\
+                width: 24px;\
                 text-align: center;\
             }\
-            .sb-sub {\
-                font-size: 11px;\
-                color: #888;\
-                margin-left: 20px;\
+            .sb-warning {\
+                background: linear-gradient(135deg, rgba(255,167,38,0.2), rgba(255,167,38,0.1));\
+                color: #ffa726;\
+                font-size: 12px;\
+                padding: 10px 12px;\
+                border-radius: 10px;\
+                margin-bottom: 12px;\
+                text-align: center;\
+                border: 1px solid rgba(255,167,38,0.3);\
+            }\
+            .sb-divider {\
+                height: 1px;\
+                background: rgba(255,255,255,0.1);\
+                margin: 12px 0;\
             }\
         ');
 
         // Button
         var btn = document.createElement('button');
         btn.id = 'sb-btn';
-        btn.textContent = '💾';
+        btn.innerHTML = '💾';
+        btn.title = 'Storage Backup & Restore';
         document.body.appendChild(btn);
 
         // Menu
@@ -758,14 +1350,14 @@
             // Title
             var title = document.createElement('div');
             title.className = 'sb-title';
-            title.textContent = '💾 Storage Backup';
+            title.innerHTML = '💾 Storage Backup <span class="sb-version">v4.0</span>';
             menu.appendChild(title);
 
             // Warning mobile
             if (isMobile()) {
                 var warn = document.createElement('div');
                 warn.className = 'sb-warning';
-                warn.textContent = '📱 Điện thoại - Nên tải file!';
+                warn.innerHTML = '📱 Đang dùng điện thoại - Nên tải file thay vì copy!';
                 menu.appendChild(warn);
             }
 
@@ -776,7 +1368,11 @@
             // Toggle Nén
             var toggleCompress = document.createElement('div');
             toggleCompress.className = 'sb-toggle';
-            toggleCompress.innerHTML = '<span>🗜️ Nén GZIP</span>';
+            var labelCompress = document.createElement('div');
+            labelCompress.className = 'sb-toggle-label';
+            labelCompress.innerHTML = '<span>🗜️</span><span>Nén GZIP</span>';
+            toggleCompress.appendChild(labelCompress);
+
             var switchCompress = document.createElement('div');
             switchCompress.className = 'sb-switch' + (settings.compress ? ' on' : '');
             switchCompress.onclick = function() {
@@ -790,7 +1386,11 @@
             // Toggle Mã hóa
             var toggleEncrypt = document.createElement('div');
             toggleEncrypt.className = 'sb-toggle';
-            toggleEncrypt.innerHTML = '<span>🔐 Mã hóa AES-256</span>';
+            var labelEncrypt = document.createElement('div');
+            labelEncrypt.className = 'sb-toggle-label';
+            labelEncrypt.innerHTML = '<span>🔐</span><span>Mã hóa AES-256</span>';
+            toggleEncrypt.appendChild(labelEncrypt);
+
             var switchEncrypt = document.createElement('div');
             switchEncrypt.className = 'sb-switch' + (settings.encrypt ? ' on' : '');
             switchEncrypt.onclick = function() {
@@ -806,6 +1406,7 @@
             // Section: Xuất
             var secExport = document.createElement('div');
             secExport.className = 'sb-section';
+
             var secExportTitle = document.createElement('div');
             secExportTitle.className = 'sb-section-title';
             secExportTitle.textContent = '📤 Xuất dữ liệu';
@@ -813,14 +1414,20 @@
 
             var btnExportAll = document.createElement('button');
             btnExportAll.className = 'sb-btn-menu';
-            btnExportAll.textContent = '💾 Tải file - Tất cả storage';
-            btnExportAll.onclick = function() { menu.classList.remove('show'); handleExportAll(); };
+            btnExportAll.innerHTML = '<span class="sb-icon">💾</span><span>Tải file - Tất cả storage</span>';
+            btnExportAll.onclick = function() {
+                menu.classList.remove('show');
+                handleExportAll();
+            };
             secExport.appendChild(btnExportAll);
 
             var btnCopyAll = document.createElement('button');
             btnCopyAll.className = 'sb-btn-menu' + (isMobile() ? ' warn' : '');
-            btnCopyAll.textContent = '📋 Copy - Dán qua chat' + (isMobile() ? ' (⚠️)' : '');
-            btnCopyAll.onclick = function() { menu.classList.remove('show'); handleCopyAll(); };
+            btnCopyAll.innerHTML = '<span class="sb-icon">📋</span><span>Copy clipboard' + (isMobile() ? ' ⚠️' : '') + '</span>';
+            btnCopyAll.onclick = function() {
+                menu.classList.remove('show');
+                handleCopyAll();
+            };
             secExport.appendChild(btnCopyAll);
 
             menu.appendChild(secExport);
@@ -828,6 +1435,7 @@
             // Section: Xuất riêng
             var secSingle = document.createElement('div');
             secSingle.className = 'sb-section';
+
             var secSingleTitle = document.createElement('div');
             secSingleTitle.className = 'sb-section-title';
             secSingleTitle.textContent = '📂 Xuất riêng từng loại';
@@ -836,15 +1444,20 @@
             var types = [
                 { key: 'localStorage', icon: '📦', name: 'localStorage' },
                 { key: 'sessionStorage', icon: '📋', name: 'sessionStorage' },
-                { key: 'cookies', icon: '🍪', name: 'cookies' },
-                { key: 'indexedDB', icon: '🗄️', name: 'IndexedDB' }
+                { key: 'cookies', icon: '🍪', name: 'Cookies' },
+                { key: 'indexedDB', icon: '🗄️', name: 'IndexedDB' },
+                { key: 'cacheStorage', icon: '💽', name: 'Cache Storage' },
+                { key: 'serviceWorkers', icon: '⚙️', name: 'Service Workers' }
             ];
 
             types.forEach(function(t) {
                 var b = document.createElement('button');
                 b.className = 'sb-btn-menu';
-                b.textContent = t.icon + ' ' + t.name;
-                b.onclick = function() { menu.classList.remove('show'); handleExportSingle(t.key); };
+                b.innerHTML = '<span class="sb-icon">' + t.icon + '</span><span>' + t.name + '</span>';
+                b.onclick = function() {
+                    menu.classList.remove('show');
+                    handleExportSingle(t.key);
+                };
                 secSingle.appendChild(b);
             });
 
@@ -853,6 +1466,7 @@
             // Section: Nhập
             var secImport = document.createElement('div');
             secImport.className = 'sb-section';
+
             var secImportTitle = document.createElement('div');
             secImportTitle.className = 'sb-section-title';
             secImportTitle.textContent = '📥 Nhập dữ liệu';
@@ -860,36 +1474,54 @@
 
             var btnImportFile = document.createElement('button');
             btnImportFile.className = 'sb-btn-menu';
-            btnImportFile.textContent = '📂 Chọn file (.json / .gz / .enc)';
-            btnImportFile.onclick = function() { menu.classList.remove('show'); handleImportFile(); };
+            btnImportFile.innerHTML = '<span class="sb-icon">📂</span><span>Chọn file (.json/.gz/.enc)</span>';
+            btnImportFile.onclick = function() {
+                menu.classList.remove('show');
+                handleImportFile();
+            };
             secImport.appendChild(btnImportFile);
 
             var btnImportPaste = document.createElement('button');
             btnImportPaste.className = 'sb-btn-menu';
-            btnImportPaste.textContent = '📋 Dán từ clipboard';
-            btnImportPaste.onclick = function() { menu.classList.remove('show'); handleImportPaste(); };
+            btnImportPaste.innerHTML = '<span class="sb-icon">📋</span><span>Dán từ clipboard</span>';
+            btnImportPaste.onclick = function() {
+                menu.classList.remove('show');
+                handleImportPaste();
+            };
             secImport.appendChild(btnImportPaste);
 
             menu.appendChild(secImport);
 
+            // Divider
+            var divider = document.createElement('div');
+            divider.className = 'sb-divider';
+            menu.appendChild(divider);
+
             // Section: Tiện ích
             var secUtil = document.createElement('div');
             secUtil.className = 'sb-section';
+
             var secUtilTitle = document.createElement('div');
             secUtilTitle.className = 'sb-section-title';
-            secUtilTitle.textContent = '⚙️ Tiện ích';
+            secUtilTitle.textContent = '🛠️ Tiện ích';
             secUtil.appendChild(secUtilTitle);
 
             var btnView = document.createElement('button');
             btnView.className = 'sb-btn-menu';
-            btnView.textContent = '👁️ Xem số lượng dữ liệu';
-            btnView.onclick = function() { menu.classList.remove('show'); handleView(); };
+            btnView.innerHTML = '<span class="sb-icon">👁️</span><span>Xem thống kê storage</span>';
+            btnView.onclick = function() {
+                menu.classList.remove('show');
+                handleView();
+            };
             secUtil.appendChild(btnView);
 
             var btnClear = document.createElement('button');
-            btnClear.className = 'sb-btn-menu';
-            btnClear.textContent = '🗑️ Xóa dữ liệu';
-            btnClear.onclick = function() { menu.classList.remove('show'); handleClear(); };
+            btnClear.className = 'sb-btn-menu danger';
+            btnClear.innerHTML = '<span class="sb-icon">🗑️</span><span>Xóa dữ liệu</span>';
+            btnClear.onclick = function() {
+                menu.classList.remove('show');
+                handleClear();
+            };
             secUtil.appendChild(btnClear);
 
             menu.appendChild(secUtil);
@@ -898,29 +1530,35 @@
         renderMenu();
         document.body.appendChild(menu);
 
-        // Drag
+        // Drag functionality
         var startX = 0, startY = 0, startLeft = 0, startTop = 0;
         var isDragging = false, hasDragged = false;
 
         var savedPos = GM_getValue('sb_btn_pos', null);
         if (savedPos) {
-            btn.style.left = savedPos.left + 'px';
-            btn.style.top = savedPos.top + 'px';
+            btn.style.left = Math.min(savedPos.left, window.innerWidth - 48) + 'px';
+            btn.style.top = Math.min(savedPos.top, window.innerHeight - 48) + 'px';
         } else {
-            btn.style.right = '15px';
-            btn.style.bottom = '80px';
+            btn.style.right = '20px';
+            btn.style.bottom = '100px';
         }
 
         function getPos(e) {
-            return e.touches ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : { x: e.clientX, y: e.clientY };
+            if (e.touches && e.touches.length > 0) {
+                return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            }
+            return { x: e.clientX, y: e.clientY };
         }
 
         function dragStart(e) {
             var pos = getPos(e);
-            startX = pos.x; startY = pos.y;
+            startX = pos.x;
+            startY = pos.y;
             var rect = btn.getBoundingClientRect();
-            startLeft = rect.left; startTop = rect.top;
-            isDragging = true; hasDragged = false;
+            startLeft = rect.left;
+            startTop = rect.top;
+            isDragging = true;
+            hasDragged = false;
             btn.classList.add('dragging');
             e.preventDefault();
         }
@@ -928,9 +1566,11 @@
         function dragMove(e) {
             if (!isDragging) return;
             var pos = getPos(e);
-            if (Math.sqrt(Math.pow(pos.x - startX, 2) + Math.pow(pos.y - startY, 2)) > 10) hasDragged = true;
-            var newLeft = Math.max(0, Math.min(startLeft + pos.x - startX, window.innerWidth - 44));
-            var newTop = Math.max(0, Math.min(startTop + pos.y - startY, window.innerHeight - 44));
+            var distance = Math.sqrt(Math.pow(pos.x - startX, 2) + Math.pow(pos.y - startY, 2));
+            if (distance > 10) hasDragged = true;
+
+            var newLeft = Math.max(0, Math.min(startLeft + pos.x - startX, window.innerWidth - 48));
+            var newTop = Math.max(0, Math.min(startTop + pos.y - startY, window.innerHeight - 48));
             btn.style.left = newLeft + 'px';
             btn.style.top = newTop + 'px';
             btn.style.right = 'auto';
@@ -942,13 +1582,20 @@
             if (!isDragging) return;
             isDragging = false;
             btn.classList.remove('dragging');
-            GM_setValue('sb_btn_pos', { left: btn.getBoundingClientRect().left, top: btn.getBoundingClientRect().top });
+
+            var rect = btn.getBoundingClientRect();
+            GM_setValue('sb_btn_pos', { left: rect.left, top: rect.top });
+
             if (!hasDragged) {
                 renderMenu();
-                var rect = btn.getBoundingClientRect();
-                var left = Math.max(10, Math.min(rect.left, window.innerWidth - 270));
+                var menuRect = { width: 300, height: 500 };
+                var left = Math.max(10, Math.min(rect.left, window.innerWidth - menuRect.width - 10));
                 var top = rect.bottom + 10;
-                if (top + 500 > window.innerHeight) top = Math.max(10, rect.top - 510);
+
+                if (top + menuRect.height > window.innerHeight) {
+                    top = Math.max(10, rect.top - menuRect.height - 10);
+                }
+
                 menu.style.left = left + 'px';
                 menu.style.top = top + 'px';
                 menu.classList.toggle('show');
@@ -958,12 +1605,21 @@
         btn.addEventListener('touchstart', dragStart, { passive: false });
         document.addEventListener('touchmove', dragMove, { passive: false });
         document.addEventListener('touchend', dragEnd);
+
         btn.addEventListener('mousedown', dragStart);
         document.addEventListener('mousemove', dragMove);
         document.addEventListener('mouseup', dragEnd);
 
+        // Close menu when clicking outside
         document.addEventListener('click', function(e) {
             if (!btn.contains(e.target) && !menu.contains(e.target)) {
+                menu.classList.remove('show');
+            }
+        });
+
+        // Close menu on escape
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
                 menu.classList.remove('show');
             }
         });
@@ -971,17 +1627,23 @@
 
     // ==================== INIT ====================
 
-    GM_registerMenuCommand('💾 Mở Storage Backup', function() {
-        document.getElementById('sb-btn').click();
+    GM_registerMenuCommand('💾 Storage Backup', function() {
+        var btn = document.getElementById('sb-btn');
+        if (btn) btn.click();
     });
 
     function init() {
-        if (!document.body) { setTimeout(init, 100); return; }
+        if (!document.body) {
+            setTimeout(init, 100);
+            return;
+        }
+
         try {
             createUI();
-            console.log('💾 Storage Backup v3.1 Ready');
+            console.log('💾 Web Storage Backup v4.0 - Ready');
+            console.log('📊 Supports: localStorage, sessionStorage, cookies, IndexedDB, Cache Storage, Service Workers');
         } catch (e) {
-            console.error('Storage Backup:', e);
+            console.error('Storage Backup init error:', e);
         }
     }
 
