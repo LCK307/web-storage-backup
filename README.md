@@ -1,6 +1,9 @@
 # 💾 Web Storage Backup & Restore
 
-Userscript giúp **sao lưu / khôi phục** toàn bộ dữ liệu trình duyệt: `localStorage`, `sessionStorage`, `cookies`, `IndexedDB` với **mã hóa AES‑256‑GCM** và **nén GZIP**.
+Userscript giúp **sao lưu / khôi phục** toàn bộ dữ liệu trình duyệt: `localStorage`, `sessionStorage`, `cookies`, `IndexedDB`, `Cache Storage`, `Service Workers` với **mã hóa AES‑256‑GCM** và **nén GZIP**.
+
+![Version](https://img.shields.io/badge/version-4.0-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
 
 ---
 
@@ -13,16 +16,29 @@ Userscript giúp **sao lưu / khôi phục** toàn bộ dữ liệu trình duy�
 
 ---
 
+## ✨ Có Gì Mới (v4.0)
+
+| Tính năng | Mô tả |
+|-----------|-------|
+| 💽 **Cache Storage** | Xuất/Nhập đầy đủ, hỗ trợ binary (images, audio, video) |
+| ⚙️ **Service Workers** | Lưu thông tin registrations (scope, scriptURL, state) |
+| 🗄️ **IndexedDB nâng cấp** | Hỗ trợ keyPath, autoIncrement, indexes đầy đủ |
+| 🎨 **UI cải tiến** | Giao diện đẹp hơn với animations |
+| 🗑️ **Xóa chi tiết** | Xóa riêng từng loại storage |
+| 📊 **Thống kê chi tiết** | Hiển thị tên databases, caches |
+
+---
+
 ## 🔐 Bảo Mật
 
 | Thành phần | Mô tả |
 |-----------|------|
-| AES‑256‑GCM | Chuẩn mã hóa cấp quân sự
-| PBKDF2 | 100.000 vòng lặp sinh khóa
-| Salt | 16 bytes, ngẫu nhiên mỗi lần
-| IV | 12 bytes, chống tấn công replay
-| GZIP | Nén trước mã hóa, giảm 60–80%
-| Offline | Không cần Internet
+| AES‑256‑GCM | Chuẩn mã hóa cấp quân sự |
+| PBKDF2 | 100.000 vòng lặp sinh khóa |
+| Salt | 16 bytes, ngẫu nhiên mỗi lần |
+| IV | 12 bytes, chống tấn công replay |
+| GZIP | Nén trước mã hóa, giảm 60–80% |
+| Offline | Không cần Internet |
 
 ---
 
@@ -30,20 +46,29 @@ Userscript giúp **sao lưu / khôi phục** toàn bộ dữ liệu trình duy�
 
 ### Dữ Liệu Hỗ Trợ
 
-| Storage | JSON | Mã hóa | Nhập file | Copy |
-|--------|------|--------|-----------|------|
-| Toàn bộ | ✅ | ✅ | ✅ | ✅ |
-| localStorage | ✅ | ✅ | ✅ | — |
-| sessionStorage | ✅ | ✅ | ✅ | — |
-| cookies | ✅ | ✅ | ✅ | — |
-| IndexedDB | ✅ | ✅ | ✅ | — |
+| Storage | Xuất | Nhập | Mã hóa | Nén | Xóa |
+|---------|------|------|--------|-----|-----|
+| 🌐 Toàn bộ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 📦 localStorage | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 📋 sessionStorage | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 🍪 cookies | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 🗄️ IndexedDB | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 💽 Cache Storage | ✅ | ✅ | ✅ | ✅ | ✅ |
+| ⚙️ Service Workers | ✅ | ℹ️ | ✅ | ✅ | ✅ |
 
-### Tính Năng
+> ℹ️ Service Workers: Chỉ lưu thông tin, không thể tự động đăng ký lại
 
-- Nút kéo thả trên màn hình
-- Xuất file `.json` hoặc `.enc`
-- Nhập file `.json` hoặc `.enc`
-- Hoạt động hoàn toàn offline
+### Tính Năng Chính
+
+- 🔄 Toggle bật/tắt nén GZIP
+- 🔐 Toggle bật/tắt mã hóa AES-256
+- 🖱️ Nút kéo thả trên màn hình
+- 💾 Xuất file `.json`, `.gz`, `.enc`
+- 📂 Nhập file `.json`, `.gz`, `.enc`
+- 📋 Copy/Paste qua clipboard
+- 👁️ Xem thống kê storage
+- 🗑️ Xóa từng loại hoặc tất cả
+- 🌐 Hoạt động hoàn toàn offline
 
 ---
 
@@ -51,8 +76,8 @@ Userscript giúp **sao lưu / khôi phục** toàn bộ dữ liệu trình duy�
 
 | Thiết bị | Nên dùng | Tránh |
 |---------|---------|-------|
-| Điện thoại | 💾 Tải File | ❌ Copy |
-| Máy tính | 💾 Tải File / 📤 Copy | — |
+| 📱 Điện thoại | 💾 Tải File | ❌ Copy |
+| 💻 Máy tính | 💾 Tải File / 📋 Copy | — |
 
 > ⚠️ Clipboard điện thoại không ổn định với dữ liệu lớn.
 
@@ -60,71 +85,253 @@ Userscript giúp **sao lưu / khôi phục** toàn bộ dữ liệu trình duy�
 
 ## 📂 Định Dạng File
 
-| File | Mã hóa | Nén | Đọc | Mục đích |
-|------|------|-----|------|---------|
-| .json | ❌ | ❌ | ✅ | Debug
-| .enc | ✅ | ✅ | ❌ | Dữ liệu nhạy cảm |
+| Đuôi file | Nén | Mã hóa | Đọc được | Mục đích |
+|-----------|-----|--------|----------|----------|
+| `.json` | ❌ | ❌ | ✅ | Debug, dữ liệu công khai |
+| `.gz` | ✅ | ❌ | ❌ | Tiết kiệm dung lượng |
+| `.enc` | ✅ | ✅ | ❌ | Dữ liệu nhạy cảm |
 
-**So sánh:** 500 KB `.json` → 100 KB `.enc`
+### So Sánh Kích Thước
+
+| Dữ liệu gốc | `.json` | `.gz` | `.enc` |
+|-------------|---------|-------|--------|
+| 500 KB | 500 KB | ~100 KB | ~105 KB |
+| 1 MB | 1 MB | ~200 KB | ~210 KB |
 
 ---
 
 ## 📖 Hướng Dẫn Sử Dụng
 
-### 🔐 Xuất có mã hóa
+### 💾 Xuất Dữ Liệu
 
-1. Nhấn 💾 → **Tải File .enc**
-2. Nhập mật khẩu
-3. Tải file
+#### Có mã hóa (khuyến nghị)
 
-### 💾 Xuất không mã hóa
+1. Bật toggle **🔐 Mã hóa AES-256**
+2. Nhấn **💾 Tải file - Tất cả storage**
+3. Nhập mật khẩu (tối thiểu 4 ký tự)
+4. Xác nhận mật khẩu
+5. Tải file `.enc`
 
-1. Nhấn 💾 → **Tải JSON**
+#### Chỉ nén (không mã hóa)
 
-### 📂 Nhập từ file
+1. Bật toggle **🗜️ Nén GZIP**
+2. Tắt toggle **🔐 Mã hóa AES-256**
+3. Nhấn **💾 Tải file - Tất cả storage**
+4. Tải file `.gz`
 
-1. 💾 → **Nhập từ File**
-2. Chọn `.json` / `.enc`
+#### Không nén, không mã hóa
+
+1. Tắt cả 2 toggles
+2. Nhấn **💾 Tải file - Tất cả storage**
+3. Tải file `.json`
+
+### 📂 Nhập Dữ Liệu
+
+#### Từ file
+
+1. Nhấn **📂 Chọn file (.json/.gz/.enc)**
+2. Chọn file backup
+3. Nhập mật khẩu nếu là file `.enc`
+4. Xác nhận nhập
+5. Reload trang
+
+#### Từ clipboard
+
+1. Nhấn **📋 Dán từ clipboard**
+2. Dán dữ liệu (JSON hoặc Base64)
 3. Nhập mật khẩu nếu cần
 4. Reload trang
 
-### 📤 Copy/Paste (PC)
+### 👁️ Xem Thống Kê
 
-- Xuất: **Copy JSON** / **Copy Base64**
-- Nhập: **Nhập JSON** / **Nhập mã hóa Base64**
+1. Nhấn **👁️ Xem thống kê storage**
+2. Hiển thị số lượng items của từng loại
+3. Hiển thị tên databases và caches
+
+### 🗑️ Xóa Dữ Liệu
+
+1. Nhấn **🗑️ Xóa dữ liệu**
+2. Chọn loại cần xóa:
+   - `1` - localStorage
+   - `2` - sessionStorage
+   - `3` - cookies
+   - `4` - IndexedDB
+   - `5` - Cache Storage
+   - `6` - Service Workers
+   - `7` - ⚠️ Tất cả
 
 ---
 
-## 🎨 Giao Diện & Màu Sắc
+## 🔒 Quy Trình Xử Lý
 
-| Màu | Ý nghĩa |
-|----|--------|
-| 🟢 | An toàn (mã hóa)
-| 🟡 | Cảnh báo (không mã hóa)
-| ⚪ | Bình thường
+### Xuất (Export)
+
+```
+JSON Data
+    ↓
+[🗜️ Nén GZIP] (nếu bật)
+    ↓
+[🔐 Mã hóa AES-256-GCM] (nếu bật)
+    ↓
+File (.json / .gz / .enc)
+```
+
+### Nhập (Import)
+
+```
+File (.json / .gz / .enc)
+    ↓
+[🔓 Giải mã AES-256-GCM] (nếu .enc)
+    ↓
+[📦 Giải nén GZIP] (nếu .gz hoặc .enc)
+    ↓
+JSON Data
+```
+
+---
+
+## 📊 Cấu Trúc Dữ Liệu Export
+
+```json
+{
+  "_meta": {
+    "hostname": "example.com",
+    "pathname": "/page",
+    "exportedAt": "2024-01-15T10:30:00.000Z",
+    "userAgent": "...",
+    "version": "4.0"
+  },
+  "localStorage": { "key": "value" },
+  "sessionStorage": { "key": "value" },
+  "cookies": { "name": "value" },
+  "indexedDB": {
+    "dbName": {
+      "version": 1,
+      "stores": {
+        "storeName": {
+          "keyPath": "id",
+          "autoIncrement": false,
+          "indexes": [],
+          "data": [{ "key": 1, "value": {} }]
+        }
+      }
+    }
+  },
+  "cacheStorage": {
+    "cacheName": [{
+      "url": "https://...",
+      "method": "GET",
+      "headers": {},
+      "body": "...",
+      "bodyType": "text",
+      "status": 200
+    }]
+  },
+  "serviceWorkers": [{
+    "scope": "https://example.com/",
+    "active": { "scriptURL": "...", "state": "activated" }
+  }]
+}
+```
 
 ---
 
 ## ⚠️ Giới Hạn
 
-- Chỉ dùng cùng domain
-- Không xuất được HttpOnly cookies
-- Không backup dữ liệu server
-- **Quên mật khẩu = mất file mã hóa**
+### Chung
 
-### Trình duyệt hỗ trợ
+- ❌ Chỉ dùng được trên cùng domain
+- ❌ Không xuất được HttpOnly cookies
+- ❌ Không backup dữ liệu server
+- ❌ **Quên mật khẩu = mất file mã hóa**
 
-Chrome 80+, Edge 80+, Firefox 113+, Safari 16.4+
+### Theo Loại Storage
+
+| Storage | Giới hạn |
+|---------|----------|
+| Service Workers | Chỉ lưu info, không thể đăng ký lại |
+| Cache Storage | Binary data tăng ~33% khi convert base64 |
+| IndexedDB | Một số DB phức tạp có thể không restore 100% |
+| Cookies | Chỉ cookies accessible từ JavaScript |
+
+### Trình Duyệt Hỗ Trợ
+
+| Trình duyệt | Phiên bản tối thiểu |
+|-------------|---------------------|
+| Chrome | 80+ |
+| Edge | 80+ |
+| Firefox | 113+ |
+| Safari | 16.4+ |
 
 ---
 
-## 🔒 Quy Trình Mã Hóa
+## 🎨 Giao Diện
 
-JSON → GZIP(Có thể có hoặc không) → Salt → PBKDF2 → IV → AES‑256‑GCM → Output
+### Màu Sắc
+
+| Màu | Ý nghĩa |
+|----|--------|
+| 🟣 Tím gradient | Nút chính |
+| 🟢 Xanh | Toggle bật |
+| ⚪ Xám | Toggle tắt |
+| 🟡 Vàng | Cảnh báo |
+| 🔴 Đỏ | Nguy hiểm (xóa) |
+
+### Toggle Settings
+
+| Toggle | Mặc định | Mô tả |
+|--------|----------|-------|
+| 🗜️ Nén GZIP | ✅ Bật | Giảm 60-80% kích thước |
+| 🔐 Mã hóa AES-256 | ❌ Tắt | Bảo vệ bằng mật khẩu |
+
+---
+
+## 📝 Changelog
+
+### v4.0
+
+- ✨ Thêm Cache Storage export/import
+- ✨ Thêm Service Workers info
+- ✨ IndexedDB: hỗ trợ keyPath, indexes
+- ✨ Thêm file định dạng `.gz`
+- ✨ UI mới với animations
+- ✨ Xóa riêng từng loại storage
+- ✨ Thống kê chi tiết hơn
+- 🔧 Backward compatible với v3.x
+
+### v3.1
+
+- ✨ Mã hóa AES-256-GCM
+- ✨ Nén GZIP
+- ✨ Toggle settings
+- ✨ Drag & drop button
+
+---
+
+## 🤝 Đóng Góp
+
+1. Fork repo
+2. Tạo branch: `git checkout -b feature/ten-tinh-nang`
+3. Commit: `git commit -m 'Thêm tính năng X'`
+4. Push: `git push origin feature/ten-tinh-nang`
+5. Tạo Pull Request
 
 ---
 
 ## 📄 License
 
-MIT
+MIT License - Xem file [LICENSE](LICENSE) để biết thêm chi tiết.
 
+---
+
+## 👨‍💻 Tác Giả
+
+**LCK307**
+
+- GitHub: [@LCK307](https://github.com/LCK307)
+
+---
+
+<p align="center">
+  Made with ❤️ for the community
+</p>
