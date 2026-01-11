@@ -368,7 +368,3 @@ MIT License - Xem file [LICENSE](LICENSE) để biết thêm chi tiết.
 - **Xuất file riêng từng loại**: Xuất từng loại storage ra file riêng biệt  
 - **Loại bỏ "Copy tất cả (Base64)"**: Đã gộp vào "Xuất Text → Clipboard"  
 - **UI tối ưu, dễ dùng hơn**
-
----
-
-**Về sau sẽ thấy các bản nâng cấp tại đây:[Nhấn để xem!](https://google.com)
