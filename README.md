@@ -16,7 +16,7 @@ Userscript giúp **sao lưu / khôi phục** toàn bộ dữ liệu trình duy�
 
 ---
 
-## ✨ Có Gì Mới (v4.2)
+## ✨ Có Gì Mới 
 
 | Tính năng | Mô tả |
 |-----------|-------|
