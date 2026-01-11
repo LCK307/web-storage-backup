@@ -371,4 +371,4 @@ MIT License - Xem file [LICENSE](LICENSE) để biết thêm chi tiết.
 
 ---
 
-**Về sau sẽ thấy các bản nâng cấp tại đây:[Nhấn để xem!](google.com)
+**Về sau sẽ thấy các bản nâng cấp tại đây:[Nhấn để xem!](https://google.com)
