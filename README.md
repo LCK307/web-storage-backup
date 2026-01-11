@@ -2,7 +2,7 @@
 
 Userscript giúp **sao lưu / khôi phục** toàn bộ dữ liệu trình duyệt: `localStorage`, `sessionStorage`, `cookies`, `IndexedDB`, `Cache Storage`, `Service Workers` với **mã hóa AES‑256‑GCM** và **nén GZIP**.
 
-![Version](https://img.shields.io/badge/version-4.0-blue)
+![Version](https://img.shields.io/badge/version-4.2-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ---
@@ -16,10 +16,13 @@ Userscript giúp **sao lưu / khôi phục** toàn bộ dữ liệu trình duy�
 
 ---
 
-## ✨ Có Gì Mới (v4.0)
+## ✨ Có Gì Mới (v4.2)
 
 | Tính năng | Mô tả |
 |-----------|-------|
+| 📝 **Xuất Text → Clipboard** | Copy từng loại storage hoặc tất cả ra clipboard (dưới dạng text/base64, có nén/mã hóa tuỳ chọn) |
+| 📂 **Xuất file riêng từng loại** | Xuất từng loại storage ra file riêng biệt |
+| ❌ **Loại bỏ "Copy tất cả (Base64)"** | Đã gộp vào tính năng "Xuất Text → Clipboard" |
 | 💽 **Cache Storage** | Xuất/Nhập đầy đủ, hỗ trợ binary (images, audio, video) |
 | ⚙️ **Service Workers** | Lưu thông tin registrations (scope, scriptURL, state) |
 | 🗄️ **IndexedDB nâng cấp** | Hỗ trợ keyPath, autoIncrement, indexes đầy đủ |
@@ -65,6 +68,8 @@ Userscript giúp **sao lưu / khôi phục** toàn bộ dữ liệu trình duy�
 - 🖱️ Nút kéo thả trên màn hình
 - 💾 Xuất file `.json`, `.gz`, `.enc`
 - 📂 Nhập file `.json`, `.gz`, `.enc`
+- 📝 **Xuất Text → Clipboard** (từng loại hoặc tất cả, có nén/mã hóa)
+- 📂 **Xuất file riêng từng loại** (localStorage, sessionStorage, cookies, IndexedDB, Cache Storage, Service Workers)
 - 📋 Copy/Paste qua clipboard
 - 👁️ Xem thống kê storage
 - 🗑️ Xóa từng loại hoặc tất cả
@@ -125,6 +130,19 @@ Userscript giúp **sao lưu / khôi phục** toàn bộ dữ liệu trình duy�
 2. Nhấn **💾 Tải file - Tất cả storage**
 3. Tải file `.json`
 
+#### **Xuất Text → Clipboard** (TÍNH NĂNG MỚI)
+
+1. Nhấn **📝 Xuất Text → Clipboard**
+2. Chọn loại storage (hoặc tất cả)
+3. Nhập mật khẩu nếu muốn mã hóa (hoặc bỏ trống)
+4. Dữ liệu sẽ được nén/mã hóa (nếu bật), encode base64 và copy vào clipboard
+5. Dán vào chat, file text, email, ghi chú...
+
+#### **Xuất file riêng từng loại**
+
+1. Chọn loại storage ở mục **"Xuất file riêng từng loại"**
+2. Làm theo hướng dẫn như xuất tất cả
+
 ### 📂 Nhập Dữ Liệu
 
 #### Từ file
@@ -173,13 +191,13 @@ JSON Data
     ↓
 [🔐 Mã hóa AES-256-GCM] (nếu bật)
     ↓
-File (.json / .gz / .enc)
+File (.json / .gz / .enc) hoặc Base64 (Clipboard)
 ```
 
 ### Nhập (Import)
 
 ```
-File (.json / .gz / .enc)
+File (.json / .gz / .enc) hoặc Base64 (Clipboard)
     ↓
 [🔓 Giải mã AES-256-GCM] (nếu .enc)
     ↓
@@ -199,7 +217,7 @@ JSON Data
     "pathname": "/page",
     "exportedAt": "2024-01-15T10:30:00.000Z",
     "userAgent": "...",
-    "version": "4.0"
+    "version": "4.2"
   },
   "localStorage": { "key": "value" },
   "sessionStorage": { "key": "value" },
@@ -288,6 +306,13 @@ JSON Data
 
 ## 📝 Changelog
 
+### v4.2
+
+- 📝 **Xuất Text → Clipboard**: Copy từng loại storage hoặc tất cả ra clipboard (có nén/mã hóa tuỳ chọn)
+- 📂 **Xuất file riêng từng loại**: Xuất từng loại storage ra file riêng biệt
+- ❌ **Loại bỏ "Copy tất cả (Base64)"**: Đã gộp vào "Xuất Text → Clipboard"
+- ⚡ Tối ưu UI, cập nhật version
+
 ### v4.0
 
 - ✨ Thêm Cache Storage export/import
@@ -335,3 +360,15 @@ MIT License - Xem file [LICENSE](LICENSE) để biết thêm chi tiết.
 <p align="center">
   Made with ❤️ for the community
 </p>
+
+---
+
+**Tóm tắt điểm mới v4.2:**  
+- **Xuất Text → Clipboard**: Copy từng loại storage hoặc tất cả, có nén/mã hóa, dán vào chat/file/email dễ dàng  
+- **Xuất file riêng từng loại**: Xuất từng loại storage ra file riêng biệt  
+- **Loại bỏ "Copy tất cả (Base64)"**: Đã gộp vào "Xuất Text → Clipboard"  
+- **UI tối ưu, dễ dùng hơn**
+
+---
+
+**Về sau sẽ thấy các bản nâng cấp tại đây:[Nhấn để xem!](google.com)
