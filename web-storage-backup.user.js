@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Web Storage Backup & Restore
 // @namespace    https://github.com/LCK307/web-storage-backup
-// @version      4.0
+// @version      4.2
 // @description  Xuất/Nhập localStorage, sessionStorage, cookies, IndexedDB, Cache Storage, Service Worker với mã hóa AES-256-GCM
 // @author       LCK307
 // @match        *://*/*
@@ -216,7 +216,6 @@
                             var tx = db.transaction(storeName, 'readonly');
                             var store = tx.objectStore(storeName);
 
-                            // Lấy metadata của store
                             var storeInfo = {
                                 keyPath: store.keyPath,
                                 autoIncrement: store.autoIncrement,
@@ -224,7 +223,6 @@
                                 data: []
                             };
 
-                            // Lấy thông tin indexes
                             var indexNames = Array.from(store.indexNames);
                             for (var k = 0; k < indexNames.length; k++) {
                                 var idx = store.index(indexNames[k]);
@@ -236,7 +234,6 @@
                                 });
                             }
 
-                            // Lấy data với keys bằng cursor
                             var allData = await new Promise(function(resolve, reject) {
                                 var items = [];
                                 var cursorReq = store.openCursor();
@@ -294,7 +291,6 @@
                             var response = await cache.match(request);
                             if (!response) continue;
 
-                            // Xác định loại content
                             var contentType = response.headers.get('content-type') || '';
                             var body;
                             var bodyType;
@@ -303,17 +299,14 @@
                                 contentType.includes('audio') ||
                                 contentType.includes('video') ||
                                 contentType.includes('application/octet-stream')) {
-                                // Binary data - convert to base64
                                 var arrayBuffer = await response.clone().arrayBuffer();
                                 body = uint8ToBase64(new Uint8Array(arrayBuffer));
                                 bodyType = 'base64';
                             } else {
-                                // Text data
                                 body = await response.clone().text();
                                 bodyType = 'text';
                             }
 
-                            // Lấy headers
                             var headers = {};
                             response.headers.forEach(function(value, key) {
                                 headers[key] = value;
@@ -395,7 +388,7 @@
                 pathname: window.location.pathname,
                 exportedAt: new Date().toISOString(),
                 userAgent: navigator.userAgent,
-                version: '4.0'
+                version: '4.2'
             },
             localStorage: exportLocalStorage(),
             sessionStorage: exportSessionStorage(),
@@ -460,7 +453,6 @@
         for (var dbName in data) {
             var dbData = data[dbName];
             try {
-                // Xóa DB cũ
                 await new Promise(function(resolve) {
                     var req = indexedDB.deleteDatabase(dbName);
                     req.onsuccess = resolve;
@@ -468,7 +460,6 @@
                     req.onblocked = resolve;
                 });
 
-                // Tạo DB mới
                 var db = await new Promise(function(resolve, reject) {
                     var req = indexedDB.open(dbName, dbData.version || 1);
 
@@ -478,7 +469,6 @@
                         for (var storeName in dbData.stores) {
                             var storeInfo = dbData.stores[storeName];
 
-                            // Xác định options cho object store
                             var storeOptions = {};
 
                             if (storeInfo.keyPath !== null && storeInfo.keyPath !== undefined) {
@@ -489,14 +479,12 @@
                                 storeOptions.autoIncrement = true;
                             }
 
-                            // Nếu không có keyPath và không autoIncrement, đặt mặc định
                             if (!storeOptions.keyPath && !storeOptions.autoIncrement) {
                                 storeOptions.autoIncrement = true;
                             }
 
                             var store = database.createObjectStore(storeName, storeOptions);
 
-                            // Tạo indexes
                             if (storeInfo.indexes && storeInfo.indexes.length > 0) {
                                 for (var i = 0; i < storeInfo.indexes.length; i++) {
                                     var idx = storeInfo.indexes[i];
@@ -517,7 +505,6 @@
                     req.onerror = function() { reject(req.error); };
                 });
 
-                // Import data vào từng store
                 for (var storeName in dbData.stores) {
                     if (!db.objectStoreNames.contains(storeName)) continue;
 
@@ -525,7 +512,6 @@
                     var tx = db.transaction(storeName, 'readwrite');
                     var store = tx.objectStore(storeName);
 
-                    // Hỗ trợ cả format cũ và mới
                     var items = storeInfo.data || storeInfo;
                     if (!Array.isArray(items)) continue;
 
@@ -534,14 +520,12 @@
                             var item = items[i];
 
                             if (item && item.hasOwnProperty('key') && item.hasOwnProperty('value')) {
-                                // Format mới với key/value
                                 if (storeInfo.keyPath) {
                                     store.put(item.value);
                                 } else {
                                     store.put(item.value, item.key);
                                 }
                             } else {
-                                // Format cũ - chỉ có value
                                 store.add(item);
                             }
                             count++;
@@ -571,10 +555,8 @@
 
         for (var cacheName in data) {
             try {
-                // Xóa cache cũ
                 await caches.delete(cacheName);
 
-                // Tạo cache mới
                 var cache = await caches.open(cacheName);
                 var items = data[cacheName];
 
@@ -583,7 +565,6 @@
                     try {
                         var body;
                         if (item.bodyType === 'base64') {
-                            // Convert base64 về binary
                             body = base64ToUint8(item.body);
                         } else {
                             body = item.body;
@@ -610,8 +591,6 @@
     }
 
     function importServiceWorkers(data) {
-        // Service Workers không thể được đăng ký lại từ userscript
-        // Chỉ có thể hiển thị thông tin
         if (!data || data.length === 0) return 0;
 
         console.log('📋 Service Workers info (không thể tự động đăng ký):');
@@ -630,7 +609,6 @@
         try {
             var data = JSON.parse(jsonStr);
 
-            // Kiểm tra hostname
             if (data._meta && data._meta.hostname !== window.location.hostname) {
                 if (!confirm(
                     '⚠️ Cảnh báo hostname khác nhau!\n\n' +
@@ -673,7 +651,6 @@
         var ext;
         var info = { original: originalSize };
 
-        // Bước 1: Nén (nếu bật)
         if (settings.compress) {
             var compressed = await compress(jsonStr);
             if (compressed) {
@@ -687,7 +664,6 @@
             finalData = new TextEncoder().encode(jsonStr);
         }
 
-        // Bước 2: Mã hóa (nếu bật)
         if (settings.encrypt && password) {
             finalData = await encrypt(finalData, password);
             info.encrypted = finalData.length;
@@ -705,13 +681,11 @@
     async function processImport(fileData, filename, password) {
         var data = fileData;
 
-        // Bước 1: Giải mã (nếu .enc)
         if (filename.endsWith('.enc')) {
             if (!password) throw new Error('Cần mật khẩu để giải mã!');
             data = await decrypt(new Uint8Array(data), password);
         }
 
-        // Bước 2: Giải nén (nếu .gz hoặc sau khi giải mã)
         if (filename.endsWith('.gz') || filename.endsWith('.enc')) {
             var decompressed = await decompress(data instanceof Uint8Array ? data : new Uint8Array(data));
             if (decompressed) {
@@ -719,7 +693,6 @@
             }
         }
 
-        // Bước 3: Decode text
         if (data instanceof ArrayBuffer || data instanceof Uint8Array) {
             return new TextDecoder().decode(data);
         }
@@ -856,32 +829,191 @@
         }
     }
 
-    async function handleCopyAll() {
-        if (isMobile()) {
-            alert('⚠️ Trên điện thoại, nên sử dụng "Tải File" để tránh mất dữ liệu!');
+    // ==================== EXPORT TEXT TO CLIPBOARD ====================
+
+    async function handleExportText() {
+        var types = [
+            { key: 'localStorage', icon: '📦', name: 'localStorage' },
+            { key: 'sessionStorage', icon: '📋', name: 'sessionStorage' },
+            { key: 'cookies', icon: '🍪', name: 'Cookies' },
+            { key: 'indexedDB', icon: '🗄️', name: 'IndexedDB' },
+            { key: 'cacheStorage', icon: '💽', name: 'Cache Storage' },
+            { key: 'serviceWorkers', icon: '⚙️', name: 'Service Workers' },
+            { key: 'all', icon: '💾', name: 'Tất cả storage' }
+        ];
+
+        var menuText = '📝 XUẤT TEXT → CLIPBOARD\n\n';
+        menuText += '⚠️ Chọn loại dữ liệu cần xuất:\n\n';
+
+        for (var i = 0; i < types.length; i++) {
+            menuText += (i + 1) + ' - ' + types[i].icon + ' ' + types[i].name + '\n';
         }
 
+        menuText += '\n0 - ❌ Hủy\n\n';
+        menuText += '💡 Nhập số thứ tự (1-' + types.length + '):';
+
+        var choice = prompt(menuText);
+
+        if (!choice || choice === '0') {
+            return;
+        }
+
+        var index = parseInt(choice) - 1;
+
+        if (isNaN(index) || index < 0 || index >= types.length) {
+            alert('❌ Lựa chọn không hợp lệ!\n\nVui lòng nhập số từ 1 đến ' + types.length);
+            return;
+        }
+
+        var selectedType = types[index];
         var password = null;
+
         if (settings.encrypt) {
-            password = prompt('🔐 Tạo mật khẩu bảo vệ:');
-            if (!password || password.length < 4) {
+            password = prompt('🔐 Tạo mật khẩu bảo vệ (tối thiểu 4 ký tự):\n\n(Bỏ trống để xuất không mã hóa)');
+            if (password && password.length > 0 && password.length < 4) {
                 alert('❌ Mật khẩu phải có ít nhất 4 ký tự!');
                 return;
+            }
+            if (password && password.length >= 4) {
+                var confirmPass = prompt('🔐 Nhập lại mật khẩu để xác nhận:');
+                if (password !== confirmPass) {
+                    alert('❌ Mật khẩu không khớp!');
+                    return;
+                }
+            } else {
+                password = null;
             }
         }
 
         try {
-            var jsonData = await exportAll();
-            var result = await processExport(jsonData, password);
-            var base64 = uint8ToBase64(result.data);
+            var data;
+            var typeName = selectedType.name;
 
-            GM_setClipboard(base64);
+            if (selectedType.key === 'all') {
+                data = await exportAll();
+            } else {
+                switch (selectedType.key) {
+                    case 'localStorage':
+                        data = exportLocalStorage();
+                        break;
+                    case 'sessionStorage':
+                        data = exportSessionStorage();
+                        break;
+                    case 'cookies':
+                        data = exportCookies();
+                        break;
+                    case 'indexedDB':
+                        data = await exportIndexedDB();
+                        break;
+                    case 'cacheStorage':
+                        data = await exportCacheStorage();
+                        break;
+                    case 'serviceWorkers':
+                        data = await exportServiceWorkers();
+                        break;
+                }
 
-            var sizeKB = (base64.length / 1024).toFixed(2);
-            alert('✅ Đã copy vào clipboard!\n\n📊 Kích thước: ' + sizeKB + ' KB\n\n💡 Dán vào chat hoặc lưu vào file text.');
+                data = {
+                    _meta: {
+                        hostname: window.location.hostname,
+                        pathname: window.location.pathname,
+                        exportedAt: new Date().toISOString(),
+                        type: selectedType.key,
+                        version: '4.2'
+                    },
+                    [selectedType.key]: data
+                };
+            }
+
+            var jsonStr = JSON.stringify(data);
+            var originalSize = jsonStr.length;
+            var finalText;
+            var processInfo = '';
+
+            if (settings.compress || password) {
+                var processedData = jsonStr;
+                var currentSize = originalSize;
+
+                if (settings.compress) {
+                    var compressed = await compress(jsonStr);
+                    if (compressed) {
+                        processedData = compressed;
+                        currentSize = compressed.length;
+                        processInfo += '🗜️ Nén: ' + (originalSize / 1024).toFixed(2) + ' KB → ' + (currentSize / 1024).toFixed(2) + ' KB\n';
+                    }
+                }
+
+                if (password) {
+                    var dataToEncrypt = typeof processedData === 'string'
+                        ? new TextEncoder().encode(processedData)
+                        : processedData;
+                    var encrypted = await encrypt(dataToEncrypt, password);
+                    processedData = encrypted;
+                    var prevSize = currentSize;
+                    currentSize = encrypted.length;
+                    processInfo += '🔐 Mã hóa: ' + (prevSize / 1024).toFixed(2) + ' KB → ' + (currentSize / 1024).toFixed(2) + ' KB\n';
+                }
+
+                var uint8Data = processedData instanceof Uint8Array
+                    ? processedData
+                    : new TextEncoder().encode(processedData);
+                finalText = uint8ToBase64(uint8Data);
+
+                processInfo += '📊 Base64: ' + (finalText.length / 1024).toFixed(2) + ' KB\n';
+            } else {
+                finalText = jsonStr;
+                processInfo += '📊 JSON thuần: ' + (finalText.length / 1024).toFixed(2) + ' KB\n';
+            }
+
+            GM_setClipboard(finalText);
+
+            var itemCount = 0;
+            if (selectedType.key === 'all') {
+                itemCount = Object.keys(data.localStorage || {}).length +
+                           Object.keys(data.sessionStorage || {}).length +
+                           Object.keys(data.cookies || {}).length +
+                           Object.keys(data.indexedDB || {}).length +
+                           Object.keys(data.cacheStorage || {}).length +
+                           (data.serviceWorkers || []).length;
+            } else {
+                var exportedData = data[selectedType.key];
+                if (Array.isArray(exportedData)) {
+                    itemCount = exportedData.length;
+                } else if (typeof exportedData === 'object') {
+                    itemCount = Object.keys(exportedData).length;
+                }
+            }
+
+            var msg = '✅ ĐÃ COPY VÀO CLIPBOARD!\n\n';
+            msg += '📂 Loại: ' + selectedType.icon + ' ' + typeName + '\n';
+            msg += '🔢 Số items: ' + itemCount + '\n';
+            msg += '🌐 Hostname: ' + window.location.hostname + '\n\n';
+            msg += '📊 XỬ LÝ:\n' + processInfo + '\n';
+
+            var ratio = ((1 - finalText.length / originalSize) * 100);
+            if (ratio > 0) {
+                msg += '📉 Giảm: ' + ratio.toFixed(1) + '%\n\n';
+            }
+
+            msg += '💡 Dán (Ctrl+V) vào:\n';
+            msg += '• Chat/Message\n';
+            msg += '• File text (.txt)\n';
+            msg += '• Email\n';
+            msg += '• Ghi chú\n\n';
+
+            if (password) {
+                msg += '⚠️ NHỚ MẬT KHẨU ĐỂ GIẢI MÃ!';
+            } else if (settings.compress) {
+                msg += '💡 Dữ liệu đã nén, cần giải nén khi nhập.';
+            } else {
+                msg += '💡 Dữ liệu JSON thuần, có thể đọc trực tiếp.';
+            }
+
+            alert(msg);
+
         } catch (e) {
-            alert('❌ Lỗi: ' + e.message);
-            console.error('Copy error:', e);
+            alert('❌ Lỗi xuất dữ liệu: ' + e.message);
+            console.error('Export text error:', e);
         }
     }
 
@@ -934,22 +1066,18 @@
             try {
                 var jsonStr;
 
-                // Thử parse JSON trực tiếp
                 try {
                     JSON.parse(input);
                     jsonStr = input;
                 } catch (e) {
-                    // Không phải JSON, thử decode Base64
                     var data = base64ToUint8(input);
 
-                    // Hỏi password nếu cần
                     var password = prompt('🔐 Nhập mật khẩu (bỏ trống nếu không mã hóa):');
 
                     if (password && password.length > 0) {
                         data = await decrypt(data, password);
                     }
 
-                    // Thử giải nén
                     var decompressed = await decompress(data);
                     if (decompressed) {
                         jsonStr = decompressed;
@@ -1095,19 +1223,14 @@
         else if (choice === '7') {
             if (confirm('⚠️ XÓA TẤT CẢ dữ liệu?\n\nHành động này không thể hoàn tác!')) {
                 try {
-                    // localStorage
                     localStorage.clear();
-
-                    // sessionStorage
                     sessionStorage.clear();
 
-                    // Cookies
                     document.cookie.split(';').forEach(function(c) {
                         var name = c.split('=')[0].trim();
                         document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
                     });
 
-                    // IndexedDB
                     if (indexedDB.databases) {
                         var dbs = await indexedDB.databases();
                         for (var i = 0; i < dbs.length; i++) {
@@ -1115,7 +1238,6 @@
                         }
                     }
 
-                    // Cache Storage
                     if ('caches' in window) {
                         var cacheNames = await caches.keys();
                         for (var i = 0; i < cacheNames.length; i++) {
@@ -1123,7 +1245,6 @@
                         }
                     }
 
-                    // Service Workers
                     if ('serviceWorker' in navigator) {
                         var regs = await navigator.serviceWorker.getRegistrations();
                         for (var i = 0; i < regs.length; i++) {
@@ -1311,6 +1432,11 @@
                 color: #ef5350;\
                 border-color: rgba(239,83,80,0.3);\
             }\
+            .sb-btn-menu.highlight {\
+                color: #4fc3f7;\
+                border-color: rgba(79,195,247,0.3);\
+                background: rgba(79,195,247,0.1);\
+            }\
             .sb-btn-menu .sb-icon {\
                 font-size: 16px;\
                 width: 24px;\
@@ -1333,27 +1459,23 @@
             }\
         ');
 
-        // Button
         var btn = document.createElement('button');
         btn.id = 'sb-btn';
         btn.innerHTML = '💾';
         btn.title = 'Storage Backup & Restore';
         document.body.appendChild(btn);
 
-        // Menu
         var menu = document.createElement('div');
         menu.id = 'sb-menu';
 
         function renderMenu() {
             menu.innerHTML = '';
 
-            // Title
             var title = document.createElement('div');
             title.className = 'sb-title';
-            title.innerHTML = '💾 Storage Backup <span class="sb-version">v4.0</span>';
+            title.innerHTML = '💾 Storage Backup <span class="sb-version">v4.2</span>';
             menu.appendChild(title);
 
-            // Warning mobile
             if (isMobile()) {
                 var warn = document.createElement('div');
                 warn.className = 'sb-warning';
@@ -1361,11 +1483,9 @@
                 menu.appendChild(warn);
             }
 
-            // Toggles
             var toggles = document.createElement('div');
             toggles.className = 'sb-toggles';
 
-            // Toggle Nén
             var toggleCompress = document.createElement('div');
             toggleCompress.className = 'sb-toggle';
             var labelCompress = document.createElement('div');
@@ -1383,7 +1503,6 @@
             toggleCompress.appendChild(switchCompress);
             toggles.appendChild(toggleCompress);
 
-            // Toggle Mã hóa
             var toggleEncrypt = document.createElement('div');
             toggleEncrypt.className = 'sb-toggle';
             var labelEncrypt = document.createElement('div');
@@ -1421,24 +1540,24 @@
             };
             secExport.appendChild(btnExportAll);
 
-            var btnCopyAll = document.createElement('button');
-            btnCopyAll.className = 'sb-btn-menu' + (isMobile() ? ' warn' : '');
-            btnCopyAll.innerHTML = '<span class="sb-icon">📋</span><span>Copy clipboard' + (isMobile() ? ' ⚠️' : '') + '</span>';
-            btnCopyAll.onclick = function() {
+            var btnExportText = document.createElement('button');
+            btnExportText.className = 'sb-btn-menu highlight';
+            btnExportText.innerHTML = '<span class="sb-icon">📝</span><span>Xuất Text → Clipboard</span>';
+            btnExportText.onclick = function() {
                 menu.classList.remove('show');
-                handleCopyAll();
+                handleExportText();
             };
-            secExport.appendChild(btnCopyAll);
+            secExport.appendChild(btnExportText);
 
             menu.appendChild(secExport);
 
-            // Section: Xuất riêng
+            // Section: Xuất riêng (file)
             var secSingle = document.createElement('div');
             secSingle.className = 'sb-section';
 
             var secSingleTitle = document.createElement('div');
             secSingleTitle.className = 'sb-section-title';
-            secSingleTitle.textContent = '📂 Xuất riêng từng loại';
+            secSingleTitle.textContent = '📂 Xuất file riêng từng loại';
             secSingle.appendChild(secSingleTitle);
 
             var types = [
@@ -1492,7 +1611,6 @@
 
             menu.appendChild(secImport);
 
-            // Divider
             var divider = document.createElement('div');
             divider.className = 'sb-divider';
             menu.appendChild(divider);
@@ -1530,7 +1648,6 @@
         renderMenu();
         document.body.appendChild(menu);
 
-        // Drag functionality
         var startX = 0, startY = 0, startLeft = 0, startTop = 0;
         var isDragging = false, hasDragged = false;
 
@@ -1610,14 +1727,12 @@
         document.addEventListener('mousemove', dragMove);
         document.addEventListener('mouseup', dragEnd);
 
-        // Close menu when clicking outside
         document.addEventListener('click', function(e) {
             if (!btn.contains(e.target) && !menu.contains(e.target)) {
                 menu.classList.remove('show');
             }
         });
 
-        // Close menu on escape
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape') {
                 menu.classList.remove('show');
@@ -1640,8 +1755,9 @@
 
         try {
             createUI();
-            console.log('💾 Web Storage Backup v4.0 - Ready');
+            console.log('💾 Web Storage Backup v4.2 - Ready');
             console.log('📊 Supports: localStorage, sessionStorage, cookies, IndexedDB, Cache Storage, Service Workers');
+            console.log('📝 Export Text to Clipboard feature available');
         } catch (e) {
             console.error('Storage Backup init error:', e);
         }
